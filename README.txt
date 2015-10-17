@@ -6,4 +6,4 @@ Version 1.0:
 Changelog: Added project to GitHub
 	Notes: The "JavaWebServer" and other classes as well are
 		very large, as I need to work on orgainizing code into
-		smaller approprialtely named classes and other misc. fixes.
+		smaller appropriately named classes and other misc. fixes.
