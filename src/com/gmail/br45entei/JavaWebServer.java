@@ -1836,7 +1836,7 @@ public final class JavaWebServer {
 				response.setHeader("Cache-Control", (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
 				response.setHeader("Date", StringUtil.getCurrentCacheTime());
 				response.setHeader("Last-Modified", StringUtil.getCacheTime(requestedFile.lastModified()));
-				response.setHeader("Accept-Ranges", (allowByteRangeRequests ? "bytes" : "none"));//XXX "Accept-Ranges: none");
+				response.setHeader("Accept-Ranges", (allowByteRangeRequests ? "bytes" : "none"));
 				response.setResponse(info);
 				try {
 					response.sendToClient(s, protocol.equalsIgnoreCase("GET"));
@@ -1851,9 +1851,11 @@ public final class JavaWebServer {
 			response.setStatusCode(HTTP_304);
 			response.setHeader("Vary", "Accept-Encoding");
 			response.setHeader("Server", SERVER_NAME_HEADER);
-			response.setHeader("Cache-Control", (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
 			response.setHeader("Date", StringUtil.getCurrentCacheTime());
 			response.setHeader("Last-Modified", StringUtil.getCacheTime(requestedFile.lastModified()));
+			response.setHeader("Cache-Control", (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
+			response.setHeader("Connection", (keepAlive ? "keep-alive" : "close"));
+			response.setHeader("Accept-Ranges", allowByteRangeRequests ? "bytes" : "none");
 			response.setResponse((String) null);
 			response.sendToClient(s, false);
 			//s.close();
@@ -1871,6 +1873,7 @@ public final class JavaWebServer {
 		out.println("Last-Modified: " + StringUtil.getCacheTime(requestedFile.lastModified()));
 		out.println("Cache-Control: " + (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
 		out.println("Connection: " + (keepAlive ? "keep-alive" : "close"));
+		out.println("Accept-Ranges: none");
 		if(keepAlive) {
 			out.println("Keep-Alive: timeout=30");
 		}
@@ -1900,15 +1903,9 @@ public final class JavaWebServer {
 		if(c != null) {
 			int j = 0;
 			for(int i = 0; i < c.length; i++) {
-				boolean doIt = true;
 				String fileName = c[i];
 				File file = new File(requestedFile, fileName);
-				if(!file.exists()) {
-					doIt = false;
-				} else {
-					doIt = !RestrictedFile.isHidden(file);
-				}
-				if(doIt) {
+				if(file.exists() && !RestrictedFile.isHidden(file)) {
 					Integer key = Integer.valueOf(j);
 					files.put(key, fileName);
 					j++;
