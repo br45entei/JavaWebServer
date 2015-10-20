@@ -1,5 +1,7 @@
 package com.gmail.br45entei.util;
 
+import com.gmail.br45entei.server.data.FileInfo;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -19,6 +21,18 @@ public class FileUtil {
 		} catch(IOException ignored) {
 		}
 		return sb.toString();
+	}
+	
+	public static final boolean isFileAccessible(final File file) {
+		if(file.exists()) {
+			try {
+				@SuppressWarnings("unused")
+				FileInfo unused = new FileInfo(file, null);
+				return true;
+			} catch(IOException ignored) {
+			}
+		}
+		return false;
 	}
 	
 }

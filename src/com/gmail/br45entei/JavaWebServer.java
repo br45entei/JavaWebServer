@@ -6,6 +6,8 @@ import com.gmail.br45entei.server.ClientRequestStatus;
 import com.gmail.br45entei.server.HTTPClientRequest;
 import com.gmail.br45entei.server.HTTPServerResponse;
 import com.gmail.br45entei.server.HTTPStatusCodes;
+import com.gmail.br45entei.server.RequestResult;
+import com.gmail.br45entei.server.SocketConnectResult;
 import com.gmail.br45entei.server.data.ClientConnectTime;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FileData;
@@ -20,10 +22,14 @@ import com.gmail.br45entei.server.data.forum.ForumData;
 import com.gmail.br45entei.server.data.forum.ForumTopic;
 import com.gmail.br45entei.server.data.php.PhpResult;
 import com.gmail.br45entei.swt.Functions;
+import com.gmail.br45entei.util.AddressUtil;
 import com.gmail.br45entei.util.CodeUtil;
+import com.gmail.br45entei.util.FileUtil;
 import com.gmail.br45entei.util.ImageUtil;
 import com.gmail.br45entei.util.LogUtils;
+import com.gmail.br45entei.util.MapUtil;
 import com.gmail.br45entei.util.PrintUtil;
+import com.gmail.br45entei.util.ResponseUtil;
 import com.gmail.br45entei.util.StringUtil;
 
 import java.awt.Dimension;
@@ -43,14 +49,11 @@ import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.lang.Thread.State;
 import java.net.BindException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.URL;
 import java.net.URLConnection;
-import java.net.UnknownHostException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
@@ -94,7 +97,6 @@ import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_401;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_403;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_404;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_407;
-import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_408;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_409;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_413;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_418;
@@ -119,7 +121,7 @@ public final class JavaWebServer {
 	public static final String								SSLThreadName					= "SSLServerThread";
 	public static final String								AdminThreadName					= "ServerAdminThread";
 	
-	public static boolean									allowByteRangeRequests			= false;
+	public static boolean									allowByteRangeRequests			= true;
 	
 	public static final String								APPLICATION_NAME				= "JavaWebServer";
 	public static final String								APPLICATION_VERSION				= "1.0";
@@ -247,7 +249,7 @@ public final class JavaWebServer {
 	}
 	
 	public static final boolean isIpBanned(String ip, boolean newConnection) {
-		ip = StringUtil.getClientAddressNoPort(ip);
+		ip = AddressUtil.getClientAddressNoPort(ip);
 		if(getBannedClient(ip) != null) {
 			return true;
 		}
@@ -260,7 +262,7 @@ public final class JavaWebServer {
 			clientData.lastConnectionTime = System.currentTimeMillis();
 			for(Socket s : new ArrayList<>(sockets)) {
 				if(s != null && !s.isClosed()) {
-					final String curIp = StringUtil.getClientAddressNoPort((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
+					final String curIp = AddressUtil.getClientAddressNoPort((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
 					if(curIp.equalsIgnoreCase(ip)) {
 						numberOfConnections++;
 					}
@@ -318,8 +320,8 @@ public final class JavaWebServer {
 	
 	public static final String	adminAuthorizationRealm		= "Server Administration";
 	protected static String		adminUsername				= "Administrator";
-	protected static String		adminPassword				= "password";
-	
+	protected static String		adminPassword				= "password";												//TODO Change all password related code to only save, load, and use salted hashes of the original password, not the password itself. https://www.youtube.com/watch?v=8ZtInClXe1Q
+																														
 	protected static boolean	enableProxyServer			= false;
 	public static boolean		sendProxyHeadersWithRequest	= true;
 	public static boolean		proxyRequiresAuthorization	= true;
@@ -439,6 +441,12 @@ public final class JavaWebServer {
 		}
 	}
 	
+	public static final void printlnDebug(String str) {
+		if(enableConsoleLogging && HTTPClientRequest.debug) {
+			PrintUtil.println(str);
+		}
+	}
+	
 	public static final void println(String str) {
 		if(enableConsoleLogging) {
 			PrintUtil.println(str);
@@ -484,9 +492,7 @@ public final class JavaWebServer {
 							i++;
 							String value = Args[i].trim();
 							if(!key.isEmpty() && !value.isEmpty()) {
-								if(HTTPClientRequest.debug) {
-									println(key + "=" + (key.equalsIgnoreCase("adminPassword") || key.equalsIgnoreCase("proxyPassword") ? "********" : value));
-								}
+								printlnDebug(key + "=" + (key.equalsIgnoreCase("adminPassword") || key.equalsIgnoreCase("proxyPassword") ? "********" : value));
 								if(key.equalsIgnoreCase("homedirectory")) {
 									//if(value.startsWith(".")) {
 									//	value = FilenameUtils.normalize(rootDir.getAbsolutePath() + File.separatorChar + value.substring(1));
@@ -594,9 +600,7 @@ public final class JavaWebServer {
 							i++;
 							String value = Args[i].trim();
 							if(!key.isEmpty() && !value.isEmpty()) {
-								if(HTTPClientRequest.debug) {
-									println(key + "=" + (key.equalsIgnoreCase("storePassword") ? "********" : value));
-								}
+								printlnDebug(key + "=" + (key.equalsIgnoreCase("storePassword") ? "********" : value));
 								if(key.equalsIgnoreCase("enableSSL")) {
 									enableSSLThread = Boolean.valueOf(value).booleanValue();
 									println("Set SSL functionality to \"" + (enableSSLThread ? "Enabled" : "Disabled") + "\"!");
@@ -658,9 +662,7 @@ public final class JavaWebServer {
 							i++;
 							String value = Args[i].trim();
 							if(!key.isEmpty() && !value.isEmpty()) {
-								if(HTTPClientRequest.debug) {
-									println(key + "=" + (key.equalsIgnoreCase("adminPassword") ? "********" : value));
-								}
+								printlnDebug(key + "=" + (key.equalsIgnoreCase("adminPassword") ? "********" : value));
 								if(key.equalsIgnoreCase("enableAdminInterface")) {
 									enableAdminInterface = Boolean.valueOf(value).booleanValue();
 									println("Set option \"enableAdminInterface\" to \"" + enableAdminInterface + "\"!");
@@ -720,9 +722,7 @@ public final class JavaWebServer {
 							i++;
 							String value = Args[i].trim();
 							if(!key.isEmpty() && !value.isEmpty()) {
-								if(HTTPClientRequest.debug) {
-									println(key + "=" + (key.equalsIgnoreCase("proxyPassword") ? "********" : value));
-								}
+								printlnDebug(key + "=" + (key.equalsIgnoreCase("proxyPassword") ? "********" : value));
 								if(key.equalsIgnoreCase("enableProxyServer")) {
 									enableProxyServer = Boolean.valueOf(value).booleanValue();
 									println("Set the Server Proxy state to \"" + (enableProxyServer ? "Enabled" : "Disabled") + "\"!");
@@ -1467,7 +1467,7 @@ public final class JavaWebServer {
 		final URLConnection conn = fileURL.openConnection();
 		//final long contentLength = conn.getContentLengthLong();
 		
-		final String clientAddress = request.xForwardedFor.isEmpty() ? StringUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "") : request.xForwardedFor;
+		final String clientAddress = request.xForwardedFor.isEmpty() ? AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "") : request.xForwardedFor;
 		
 		final String fileLink = StringUtil.encodeHTML(httpProtocol + (clientInfo.host + domainDirectory.replacePathWithAlias(requestedFilePath))).replace(" ", "%20");
 		
@@ -1574,28 +1574,29 @@ public final class JavaWebServer {
 			} else if(fileExt.equalsIgnoreCase("php")) {
 				printErrln("\t*** Warning! Requested file is a php file, but the php setting in the\r\n\t\"" + rootDir.getAbsolutePath() + File.separatorChar + optionsFileName + "\"\r\n\tfile either refers to a non-existant file or is not defined.\r\n\tTo fix this, type phpExeFilePath= and then the complete path to the main php\r\n\texecutable file(leaving no space after the equal symbol).\r\n\tYou can download php binaries here: http://php.net/downloads.php\r\n\tIf this is not corrected, any php files requested by incoming clients will be downloaded rather than executed.");
 			}
-			if(!clientInfo.range.isEmpty() && !clientInfo.range.equalsIgnoreCase("bytes=0-") && allowByteRangeRequests) {
-				println("TEST 1: range: \"" + clientInfo.range + "\";");
+			if(!clientInfo.range.isEmpty()/* && !clientInfo.range.equalsIgnoreCase("bytes=0-") */&& allowByteRangeRequests) {
+				printlnDebug("TEST 1: range: \"" + clientInfo.range + "\";");
 				String[] rangeSplit = clientInfo.range.replace("bytes=", "").split("-");
 				if(rangeSplit.length == 2 || (clientInfo.range.endsWith("-") && rangeSplit.length == 1)) {
-					println("TEST 2: rangeSplit.length: " + rangeSplit.length);
+					printlnDebug("TEST 2: rangeSplit.length: " + rangeSplit.length);
 					try {
 						String length = info.contentLength;
 						final long contentLength = StringUtil.getLongFromStr(length).longValue();
-						println("TEST 3: content length: " + contentLength);
+						printlnDebug("TEST 3: content length: " + contentLength);
 						
 						long startBytes = StringUtil.getLongFromStr(rangeSplit[0]).longValue();
-						println("TEST 4: start bytes: " + startBytes);
+						printlnDebug("TEST 4: start bytes: " + startBytes);
 						long endBytes;
 						if(clientInfo.range.endsWith("-")) {
-							endBytes = contentLength;
+							endBytes = contentLength - 1;
 						} else {
 							endBytes = StringUtil.getLongFromStr(rangeSplit[1]).longValue();
 						}
-						println("TEST 5: end bytes: " + endBytes);
+						printlnDebug("TEST 5: end bytes: " + endBytes);
 						if((startBytes >= 0 && startBytes < contentLength) && (endBytes > startBytes && endBytes <= contentLength)) {
-							println("TEST 6: values are in range of file size.");
+							printlnDebug("TEST 6: values are in range of file size.");
 							println("\t*** 206 Partial Content(Byte range) Requested: " + startBytes + "-" + endBytes + " /" + contentLength);
+							long l = (endBytes - startBytes) + 1;
 							PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
 							out.println("HTTP/1.1 206 Partial Content");
 							out.println("Vary: Accept-Encoding");
@@ -1604,13 +1605,13 @@ public final class JavaWebServer {
 							out.println("Cache-Control: " + (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
 							out.println("Date: " + StringUtil.getCurrentCacheTime());
 							out.println("Last-Modified: " + StringUtil.getCacheTime(requestedFile.lastModified()));
-							long l = ((endBytes - startBytes) + 1);
 							out.println("Content-Length: " + l);//info.contentLength);
 							out.println("Accept-Ranges: bytes");
 							out.println("Content-Range: bytes " + startBytes + "-" + endBytes + "/" + contentLength);
 							out.println("");
+							out.flush();
 							if(protocol.equalsIgnoreCase("GET")) {
-								println("TEST 7: HTTP method is a GET request.");
+								printlnDebug("TEST 7: HTTP method is a GET request.");
 								try {
 									InputStream closeMe = conn.getInputStream();
 									if(closeMe != null) {
@@ -1619,15 +1620,14 @@ public final class JavaWebServer {
 								} catch(Throwable ignored) {
 								}
 								InputStream fileIn = new FileInputStream(requestedFile);
-								println("TEST 8: file input stream established.");
+								printlnDebug("TEST 8: file input stream established.");
 								IOException exception = null;
 								try {
-									copyInputStreamToOutputStream(info, fileIn, outStream, startBytes, endBytes, clientInfo);
+									long sentBytes = copyInputStreamToOutputStream(info, fileIn, outStream, startBytes, endBytes, clientInfo);
+									printlnDebug("DEBUG: Sent Bytes matches length: " + ((sentBytes == l) ? "true" : "false; Sent bytes: " + sentBytes));
 									println("\t\t\tSent file \r\n\t\t\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t\t to client \"" + clientAddress + "\" successfully.");
 								} catch(IOException e) {
-									//if(HTTPClientRequest.debug) {
-									println("\t /!\\\tFailed to send file \r\n\t/___\\\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t to client \"" + clientAddress + "\": " + LogUtils.throwableToStr(e));
-									//}
+									printlnDebug("\t /!\\\tFailed to send file \r\n\t/___\\\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t to client \"" + clientAddress + "\": " + LogUtils.throwableToStr(e));
 									exception = e;
 								}
 								try {
@@ -1640,7 +1640,6 @@ public final class JavaWebServer {
 									throw exception;
 								}
 							}
-							out.flush();
 							//out.close();
 							//s.close();
 							connectedClients.remove(clientInfo);
@@ -2079,7 +2078,7 @@ public final class JavaWebServer {
 		}
 		
 		clientInfo.requestedFile.contentLength = String.valueOf(files.size());
-		final String randomLink = domainDirectory.getEnableFilterView() ? getRandomLinkFor(files, path, pathPrefix, domainDirectory, httpProtocol, clientInfo) : null;
+		final String randomLink = domainDirectory.getEnableFilterView() ? MapUtil.getRandomLinkFor(files, path, pathPrefix, domainDirectory, httpProtocol, clientInfo) : null;
 		
 		boolean doesDirContainMediaFiles = false;
 		for(Entry<Integer, String> entry : files.entrySet()) {
@@ -2379,7 +2378,7 @@ public final class JavaWebServer {
 			"\t\t\t<tbody>\r\n";
 			
 			if(domainDirectory.getEnableSortView()) {
-				final String reqArgsWithoutSort = requestArgumentsToString(requestArguments, "sort");
+				final String reqArgsWithoutSort = StringUtil.requestArgumentsToString(requestArguments, "sort");
 				final String link = fileLink + reqArgsWithoutSort + (reqArgsWithoutSort.isEmpty() ? "?" : "&");
 				final String triangleStr = (isSortReversed ? "&nbsp;▲" : "&nbsp;▼");
 				String numberSortLink = "<b><a href=\"" + link + "sort=" + (sort.equalsIgnoreCase("numbers") && !isSortReversed ? "-" : "") + "numbers\" color=\"#000000\"" + linkTarget + ">#" + (sort.equalsIgnoreCase("numbers") ? triangleStr : "") + "</a></b>";
@@ -2430,11 +2429,11 @@ public final class JavaWebServer {
 					folderPaths.clear();
 					while(!fileInfos.isEmpty()) {
 						if(sort.equalsIgnoreCase("sizes")) {
-							filePaths.add(getSmallestFileInfoKeyInHashMapAndRemoveIt(fileInfos));
+							filePaths.add(MapUtil.getSmallestFileInfoKeyInHashMapAndRemoveIt(fileInfos));
 						} else if(sort.equalsIgnoreCase("dates")) {
-							filePaths.add(getOldestFileInfoKeyInHashMapAndRemoveIt(fileInfos));
+							filePaths.add(MapUtil.getOldestFileInfoKeyInHashMapAndRemoveIt(fileInfos));
 						} else if(sort.equalsIgnoreCase("types")) {
-							filePaths.add(getLargestMimeTypeAlphabeticallyFromFileInfoKeyInHashMapAndRemoveIt(fileInfos));
+							filePaths.add(MapUtil.getLargestMimeTypeAlphabeticallyFromFileInfoKeyInHashMapAndRemoveIt(fileInfos));
 						}
 					}
 					
@@ -2708,10 +2707,12 @@ public final class JavaWebServer {
 				String renameCheck = request.requestArguments.get("renameFile");
 				String deleteCheck = request.requestArguments.get("deleteFile");
 				String moveCheck = request.requestArguments.get("moveFile");
+				String restrictCheck = request.requestArguments.get("restrictFile");
 				final boolean renameFile = renameCheck != null ? renameCheck.equals("1") || renameCheck.equalsIgnoreCase("true") : false;
 				String renameTo = request.requestArguments.get("renameTo");
 				final boolean deleteFile = deleteCheck != null ? deleteCheck.equals("1") || deleteCheck.equalsIgnoreCase("true") : false;
 				final boolean moveFile = moveCheck != null ? moveCheck.equals("1") || moveCheck.equalsIgnoreCase("true") : false;
+				final boolean restrictFile = restrictCheck != null ? restrictCheck.equals("1") || restrictCheck.equalsIgnoreCase("true") : false;
 				
 				final String parentFileLink;
 				final File parentFile = requestedFile.getParentFile();
@@ -2863,7 +2864,8 @@ public final class JavaWebServer {
 									+ "\t</body>\r\n</html>";
 						}
 					}
-				} else if(moveFile) {
+				} else if(moveFile || restrictFile) {
+					//TODO Implement me!
 					responseStr = "<!DOCTYPE html><html><head><link rel=\"shortcut icon\" href=\"" + domainDirectory.getDefaultPageIcon() + "\" type=\"image/x-icon\"><title>You hax. - " + domainDirectory.getServerName() + "</title><style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>" + (domainDirectory.doesDefaultStyleSheetExist() ? "<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">" : "") + "</head><body><string>You typed that url didn't you.</string></body></html>";
 				} else {
 					if(requestedFile.isDirectory()) {
@@ -2945,7 +2947,7 @@ public final class JavaWebServer {
 								fileName = entry.getValue();
 							}
 							File file = new File(requestedFile, fileName);
-							if(isFileAccessible(file)) {
+							if(FileUtil.isFileAccessible(file)) {
 								final boolean isDefaultFileForDomain = FilenameUtils.normalize(file.getAbsolutePath()).equalsIgnoreCase(defaultFilePath);
 								RestrictedFile curRes = RestrictedFile.getSpecificRestrictedFile(file);
 								final boolean isHidden = curRes == null ? false : curRes.isHidden.getValue().booleanValue();
@@ -3057,140 +3059,11 @@ public final class JavaWebServer {
 		return false;
 	}
 	
-	private static final String getManagementStrForFile(String fileLink, String fileName) {
+	private static final String getManagementStrForFile(String fileLink, String fileName) {//XXX Folder/File Administration Management Links
 		return "<a href=\"" + fileLink + "?administrateFile=1&renameFile=1\" rel=\"nofollow\" title=\"Rename this file\">Rename</a>"//
 				+ "&nbsp;<a href=\"" + fileLink + "?administrateFile=1&deleteFile=1\" rel=\"nofollow\" title=\"Delete this file\" onclick=\"return confirm('Are you sure you want to delete the file &quot;" + StringUtil.makeFilePathURLSafe(fileName) + "&quot;? This cannot be undone.');\">Delete</a>"//
-				+ "&nbsp;<b><u><i><string title=\"This feature is not implemented yet.\">Move</string></i></u></b>";//
-	}
-	
-	private static final String getRandomFileFromHashMap(final HashMap<Integer, String> files) {
-		ArrayList<String> list = new ArrayList<>(files.values());
-		return list.get(StringUtil.getRandomIntBetween(0, list.size()));
-	}
-	
-	@SuppressWarnings("unused")
-	public static final boolean isFileAccessible(final File file) {
-		if(file.exists()) {
-			try {
-				new FileInfo(file, null);
-				return true;
-			} catch(IOException ignored) {
-			}
-		}
-		return false;
-	}
-	
-	protected static final String getRandomLinkFor(final HashMap<Integer, String> files, final String path, final String pathPrefix, final DomainDirectory domainDirectory, final String httpProtocol, final ClientInfo clientInfo) {
-		if(files.size() == 0) {
-			return null;
-		}
-		String randomFilePath = getRandomFileFromHashMap(files);
-		String newPath = path + "/" + randomFilePath;
-		if(newPath.startsWith("//")) {
-			newPath = newPath.substring(1);
-		}
-		File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
-		
-		while(!isFileAccessible(file)) {
-			if(files.size() == 0) {
-				return null;
-			}
-			randomFilePath = getRandomFileFromHashMap(files);
-			newPath = path + "/" + randomFilePath;
-			if(newPath.startsWith("//")) {
-				newPath = newPath.substring(1);
-			}
-			file = new File(FilenameUtils.normalize(pathPrefix + newPath));
-		}
-		
-		if(file.exists()) {
-			String unAliasedPath = (newPath.startsWith("/") ? "" : "/") + newPath;
-			return StringUtil.encodeHTML(httpProtocol + clientInfo.host + StringUtil.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
-		}
-		return null;
-	}
-	
-	protected static final Integer getOldestFileInfoKeyInHashMapAndRemoveIt(HashMap<Integer, FileInfo> infos) {
-		Integer oldestInfoKey = null;
-		if(infos != null && !infos.isEmpty()) {
-			long oldestSize = Long.MAX_VALUE;
-			for(Entry<Integer, FileInfo> entry : infos.entrySet()) {
-				FileInfo info = entry.getValue();
-				if(info != null) {
-					if(info.lastModifiedLong < oldestSize) {
-						oldestInfoKey = entry.getKey();
-						oldestSize = info.lastModifiedLong;
-					}
-				}
-			}
-			if(oldestInfoKey != null) {
-				infos.remove(oldestInfoKey);
-			}
-		}
-		return oldestInfoKey;
-	}
-	
-	protected static final Integer getSmallestFileInfoKeyInHashMapAndRemoveIt(HashMap<Integer, FileInfo> infos) {
-		Integer smallestInfoKey = null;
-		if(infos != null && !infos.isEmpty()) {
-			long smallestSize = Long.MAX_VALUE;
-			for(Entry<Integer, FileInfo> entry : infos.entrySet()) {
-				FileInfo info = entry.getValue();
-				if(info != null && StringUtil.isStrLong(info.contentLength)) {
-					long size = Long.valueOf(info.contentLength).longValue();
-					if(size < smallestSize) {
-						smallestInfoKey = entry.getKey();
-						smallestSize = size;
-					}
-				}
-			}
-			if(smallestInfoKey != null) {
-				infos.remove(smallestInfoKey);
-			}
-		}
-		return smallestInfoKey;
-	}
-	
-	protected static final Integer getLargestMimeTypeAlphabeticallyFromFileInfoKeyInHashMapAndRemoveIt(HashMap<Integer, FileInfo> infos) {
-		Integer largestMimeTypeAlphabeticallyInfoKey = null;
-		if(infos != null && !infos.isEmpty()) {
-			String largestMimeTypeAlphabetically = "";
-			for(Entry<Integer, FileInfo> entry : infos.entrySet()) {
-				FileInfo info = entry.getValue();
-				if(info != null) {
-					String mimeType = info.mimeType.toLowerCase();
-					int size = mimeType.compareTo(largestMimeTypeAlphabetically);
-					if(size > 0) {
-						largestMimeTypeAlphabeticallyInfoKey = entry.getKey();
-						largestMimeTypeAlphabetically = mimeType;
-					}
-				}
-			}
-			if(largestMimeTypeAlphabeticallyInfoKey != null) {
-				infos.remove(largestMimeTypeAlphabeticallyInfoKey);
-			}
-		}
-		return largestMimeTypeAlphabeticallyInfoKey;
-	}
-	
-	protected static final String requestArgumentsToString(HashMap<String, String> requestArguments, String... argumentsToIgnore) {
-		String rtrn = "?";
-		final HashMap<String, String> reqArgs = new HashMap<>(requestArguments);
-		for(Entry<String, String> entry : requestArguments.entrySet()) {
-			if(entry.getKey() != null) {
-				for(String argToIgnore : argumentsToIgnore) {
-					if(entry.getKey().equals(argToIgnore)) {
-						reqArgs.remove(entry.getKey());
-					}
-				}
-			}
-		}
-		boolean addedAnyArguments = false;
-		for(Entry<String, String> entry : reqArgs.entrySet()) {
-			rtrn += (addedAnyArguments ? "&" : "") + entry.getKey() + "=" + entry.getValue();
-			addedAnyArguments = true;
-		}
-		return rtrn.equals("?") ? "" : rtrn;
+				+ "&nbsp;<b><u><i><string title=\"This feature is not implemented yet.\">Move</string></u>"//
+				+ "&nbsp;<u><string title=\"This feature is not implemented yet.\">Restrict</string></i></u></b>";//
 	}
 	
 	protected static final String	shutdownStr	= "rlXmsns_" + UUID.randomUUID().toString();
@@ -3203,7 +3076,7 @@ public final class JavaWebServer {
 		if(!adminFolder.exists()) {
 			adminFolder.mkdirs();
 		}
-		final String clientAddress = StringUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
+		final String clientAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
 		if(isIpBanned(clientAddress, true)) {
 			try {
 				s.close();
@@ -3259,7 +3132,7 @@ public final class JavaWebServer {
 				s.close();
 				return;
 			} catch(TimeoutException e) {
-				send408Response(s, clientAddress);
+				ResponseUtil.send408Response(s, clientAddress);
 				try {
 					in.close();
 				} catch(Throwable ignored) {
@@ -3273,7 +3146,7 @@ public final class JavaWebServer {
 			}
 			final String originalHost = request.host.isEmpty() ? request.http2Host : request.host;
 			boolean hostDefined = !originalHost.isEmpty();
-			request.host = StringUtil.checkIfHostIsValid(originalHost);
+			request.host = AddressUtil.getValidHostFor(originalHost);
 			if(!hostDefined && request.version.equalsIgnoreCase("HTTP/1.1")) {
 				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No host header defined: \"" + originalHost + "\"").setResponse((String) null).sendToClient(s, false);
 				request.cancel();
@@ -3287,9 +3160,9 @@ public final class JavaWebServer {
 				request.cancel();
 				return;
 			}
-			JavaWebServer.println("\t--- Client request: " + request.protocolRequest);
-			if(!request.requestArguments.isEmpty() && HTTPClientRequest.debug) {
-				JavaWebServer.println("\t\tRequest Arguments: \"" + request.requestArgumentsStr + "\"");
+			println("\t--- Client request: " + request.protocolRequest);
+			if(!request.requestArguments.isEmpty()) {
+				printlnDebug("\t\tRequest Arguments: \"" + request.requestArgumentsStr + "\"");
 			}
 			HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8);
 			
@@ -3756,7 +3629,7 @@ public final class JavaWebServer {
 									//
 									DomainDirectory domain = DomainDirectory.getTemporaryDomain();
 									String getDomainName = request.requestArguments.get("domainName");
-									final String domainName = getDomainName == null ? getALocalIP()/*InetAddress.getLocalHost().getHostAddress()*/: getDomainName;
+									final String domainName = getDomainName == null ? AddressUtil.getALocalIP()/*InetAddress.getLocalHost().getHostAddress()*/: getDomainName;
 									final String booleanOptionOn = "\r\n\t\t\t\t\t\t<option value=\"true\">true</option>\r\n\t\t\t\t\t\t<option value=\"false\">false</option>\r\n";
 									final String booleanOptionOff = "\r\n\t\t\t\t\t\t<option value=\"false\">false</option>\r\n\t\t\t\t\t\t<option value=\"true\">true</option>\r\n";
 									response.appendResponse("\t\t\t\t\t<tr><td><b>Date Created:</b></td><td>" + StringUtil.getCurrentCacheTime() + "</td></tr>\r\n");
@@ -4450,9 +4323,7 @@ public final class JavaWebServer {
 								final String filePathKey = "FilePath";
 								final String filePath = FilenameUtils.normalize(values.get(filePathKey));
 								final File file = filePath != null ? new File(filePath) : null;
-								if(HTTPClientRequest.debug) {
-									println("file == null: " + (file == null) + "; file exists: " + (file != null ? file.exists() + "" : "N/A"));
-								}
+								printlnDebug("file == null: " + (file == null) + "; file exists: " + (file != null ? file.exists() + "" : "N/A"));
 								if(file != null && file.exists()) {
 									RestrictedFile check = RestrictedFile.getSpecificRestrictedFile(file);
 									if(check == null) {
@@ -4697,69 +4568,8 @@ public final class JavaWebServer {
 		}
 	}
 	
-	public static final class RequestResult {
-		public final HTTPClientRequest	request;
-		public final boolean			reuse;
-		public final IOException		exception;
-		
-		public RequestResult(HTTPClientRequest request, boolean reuse, IOException exception) {
-			this.request = request;
-			this.reuse = reuse;
-			this.exception = exception;
-		}
-		
-		/** @return Whether or not the request was a proxy request */
-		public final boolean wasProxyRequest() {
-			return this.request != null ? this.request.isProxyRequest : false;
-		}
-		
-	}
-	
 	protected static final RequestResult HandleRequest(final Socket s, final InputStream in, boolean https) {
 		return HandleRequest(s, in, https, false);
-	}
-	
-	private static final class SocketConnectResult {
-		public final Socket			s;
-		public final String			failReason;
-		public final boolean		failedToConnect;
-		public final InputStream	in;
-		public final OutputStream	out;
-		
-		public SocketConnectResult(String address, int port) {
-			Socket server = new Socket();
-			InetSocketAddress addr = new InetSocketAddress(address, port);
-			boolean failedToConnect = addr.isUnresolved();
-			String failReason = "Server address is unresolved";
-			InputStream in;
-			OutputStream out;
-			try {
-				try {
-					server.close();
-				} catch(Throwable ignored) {
-				}
-				server = new Socket(address, port);
-				failedToConnect = false;
-				failReason = "";
-				in = server.getInputStream();
-				out = server.getOutputStream();
-			} catch(Throwable e) {
-				try {
-					server.close();
-				} catch(Throwable ignored) {
-				}
-				failedToConnect = true;
-				failReason = e.getClass().getSimpleName() + ": " + e.getMessage();
-				in = null;
-				out = null;
-			}
-			this.s = server;
-			this.in = in;
-			this.out = out;
-			this.failReason = failReason;
-			this.failedToConnect = failedToConnect;
-		}
-		
 	}
 	
 	protected static final String handleProxyRequest(final Socket client, final InputStream clientIn, final OutputStream clientOut, final HTTPClientRequest request, boolean connect) throws Throwable {
@@ -4774,19 +4584,19 @@ public final class JavaWebServer {
 			throw new IllegalArgumentException("Client request was not a proxy request.");
 		}
 		String clientAddress = StringUtils.replaceOnce(client.getRemoteSocketAddress().toString(), "/", "");
-		final int clientPort = StringUtil.getPortFromAddress(clientAddress);
+		final int clientPort = AddressUtil.getPortFromAddress(clientAddress);
 		clientAddress = clientAddress.replace(":" + clientPort, "");
 		
 		String serverAddress = request.requestedServerAddress;
-		int serverPort = StringUtil.getPortFromAddress(serverAddress);
+		int serverPort = AddressUtil.getPortFromAddress(serverAddress);
 		if(serverPort == -1) {
 			serverPort = request.protocolRequest.toLowerCase().startsWith("https://") ? 443 : 80;
 		} else {
 			serverAddress = serverAddress.replace(":" + serverPort, "");//serverAddress.substring(0, serverAddress.length() - (":" + serverPort).length());
 		}
 		
-		String getProxyAddress = StringUtil.getIp();
-		final String proxyAddress = getProxyAddress.isEmpty() ? StringUtil.getClientAddress(StringUtils.replaceOnce(client.getLocalSocketAddress().toString(), "/", "")) : getProxyAddress + ":" + client.getLocalPort();
+		String getProxyAddress = AddressUtil.getIp();
+		final String proxyAddress = getProxyAddress.isEmpty() ? AddressUtil.getClientAddress(StringUtils.replaceOnce(client.getLocalSocketAddress().toString(), "/", "")) : getProxyAddress + ":" + client.getLocalPort();
 		final String ipDescription = "<s>" + serverAddress + ":" + serverPort + "</s> --&gt; " + proxyAddress + " --&gt; " + clientAddress + (clientPort != -1 ? ":" + clientPort : "");
 		
 		String clientResponse;
@@ -4814,8 +4624,8 @@ public final class JavaWebServer {
 					+ "<html>\r\n\t<head>\r\n"//
 					+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
 					+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
-					+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + StringUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
-					+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + StringUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
+					+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + AddressUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
+					+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + AddressUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
 					+ "\t\t<title>" + code.getName() + " - " + code.getValue() + " - " + SERVER_NAME + "</title>\r\n"//
 					+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
 					+ "\t</head>\r\n"//
@@ -5038,8 +4848,8 @@ public final class JavaWebServer {
 					+ "<html>\r\n\t<head>\r\n"//
 					+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
 					+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
-					+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + StringUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
-					+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + StringUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
+					+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + AddressUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
+					+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + AddressUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
 					+ "\t\t<title>" + code.getName() + " - " + code.getValue() + " - " + SERVER_NAME + "</title>\r\n"//
 					+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
 					+ "\t</head>\r\n"//
@@ -5084,7 +4894,7 @@ public final class JavaWebServer {
 		}
 		ClientInfo clientInfo = null;
 		DomainDirectory domainDirectory = null;
-		String getClientAddress = StringUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
+		String getClientAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
 		if(isIpBanned(getClientAddress, true)) {
 			try {
 				s.close();
@@ -5129,7 +4939,7 @@ public final class JavaWebServer {
 				return new RequestResult(null, false, null);
 			} catch(TimeoutException e) {
 				request.status.removeFromList();
-				send408Response(s, getClientAddress);
+				ResponseUtil.send408Response(s, getClientAddress);
 				request.cancel();
 				return new RequestResult(null, false, null);//reuse, null);
 			}
@@ -5167,7 +4977,7 @@ public final class JavaWebServer {
 				} else {
 					HTTPServerResponse response = new HTTPServerResponse("HTTP/1.1", HTTP_421/*HTTP_500*/, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8);
 					final String pageHeader = "<hr><b>" + request.requestedFilePath + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress + "</b>";
-					send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+					ResponseUtil.send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
 					/*response.setHeader("Content-Type", "text/html; charset=UTF-8");
 					response.setHeader("Server", SERVER_NAME_HEADER);
 					response.setHeader("Cache-Control", cachePrivateMustRevalidate);
@@ -5191,7 +5001,7 @@ public final class JavaWebServer {
 			}
 			final String originalHost = request.host.isEmpty() ? request.http2Host : request.host;
 			boolean hostDefined = !originalHost.isEmpty();
-			request.host = StringUtil.checkIfHostIsValid(originalHost);
+			request.host = AddressUtil.getValidHostFor(originalHost);
 			if(!hostDefined && request.version.equalsIgnoreCase("HTTP/1.1")) {
 				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No host header defined: \"" + originalHost + "\"").setResponse((String) null).sendToClient(s, false);
 				return new RequestResult(request, reuse, null);
@@ -5219,7 +5029,7 @@ public final class JavaWebServer {
 				return new RequestResult(request, reuse, null);
 			}
 			
-			final boolean domainIsLocalHost = isDomainLocalHost(request.host);
+			final boolean domainIsLocalHost = AddressUtil.isDomainLocalHost(request.host);
 			final DomainDirectory testDomain = DomainDirectory.getDomainDirectoryFromDomainName(request.host);
 			if(testDomain != null || domainIsLocalHost) {
 				domainDirectory = DomainDirectory.getOrCreateDomainDirectory(request.host);
@@ -5355,10 +5165,10 @@ public final class JavaWebServer {
 						connectedClients.remove(clientInfo);
 						return new RequestResult(request, reuse, null);
 					} else if(testDomain == null && !domainIsLocalHost) {
-						send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+						ResponseUtil.send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
 						return new RequestResult(request, reuse, null);
 					}
-					send404Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+					ResponseUtil.send404Response(s, request, response, clientInfo, domainDirectory, pageHeader);
 					return new RequestResult(request, reuse, null);
 				} else if(request.protocol.equalsIgnoreCase("GET") || request.protocol.equalsIgnoreCase("HEAD")) {
 					final String pathPrefix = FilenameUtils.getFullPathNoEndSeparator(FilenameUtils.normalize(domainDirectory.getDirectory().getAbsolutePath() + File.separatorChar));
@@ -5404,9 +5214,7 @@ public final class JavaWebServer {
 						isExempt = administrateFile || request.requestedFilePath.equalsIgnoreCase(layout) || request.requestedFilePath.equalsIgnoreCase(favicon);
 						
 						if(RestrictedFile.isFileRestricted(requestedFile, s.getInetAddress().getHostAddress()) && !isExempt) {
-							if(HTTPClientRequest.debug) {
-								println("layout: \"" + layout + "\"; favicon: \"" + favicon + "\";\r\nrequestedFilePath: \"" + request.requestedFilePath + "\";");
-							}
+							printlnDebug("layout: \"" + layout + "\"; favicon: \"" + favicon + "\";\r\nrequestedFilePath: \"" + request.requestedFilePath + "\";");
 							RestrictedFile restrictedFile = RestrictedFile.getRestrictedFile(requestedFile);
 							if(restrictedFile != null) {
 								if(restrictedFile.isPasswordProtected()) {
@@ -5482,10 +5290,10 @@ public final class JavaWebServer {
 						}
 						return new RequestResult(request, reuse, exception);
 					} else if(testDomain == null && !domainIsLocalHost) {
-						send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+						ResponseUtil.send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
 						return new RequestResult(request, reuse, null);
 					}
-					send404Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+					ResponseUtil.send404Response(s, request, response, clientInfo, domainDirectory, pageHeader);
 					return new RequestResult(request, reuse, null);
 					/*out.println("HTTP/1.0 200");
 					out.println("Vary: Accept-Encoding");
@@ -5705,152 +5513,6 @@ public final class JavaWebServer {
 		return new RequestResult(null, false, ioException);
 	}
 	
-	protected static final void send404Response(final Socket s, HTTPClientRequest request, HTTPServerResponse response, ClientInfo clientInfo, DomainDirectory domainDirectory, String pageHeader) throws IOException {
-		response.setStatusCode(HTTP_404);
-		response.setHeader("Vary", "Accept-Encoding");
-		response.setHeader("Date", StringUtil.getCurrentCacheTime());
-		response.setHeader("Content-Type", "text/html; charset=UTF-8");
-		response.setHeader("Server", SERVER_NAME_HEADER);
-		response.setHeader("Cache-Control", "public, max-age=" + domainDirectory.getCacheMaxAge());
-		response.setResponse("<!DOCTYPE html>\r\n"//
-				+ "<html>\r\n\t<head>\r\n"//
-				+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
-				+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
-				+ "\t\t<link rel=\"shortcut icon\" href=\"" + domainDirectory.getDefaultPageIcon() + "\" type=\"image/x-icon\">\r\n"//
-				+ "\t\t<title>404 - File not Found!!!11 - " + domainDirectory.getServerName() + "</title>\r\n"//
-				+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
-				+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
-				+ "\t</head>\r\n"//
-				+ "\t<body>\r\n"//
-				+ "\t\t<h1>Error 404 - File not found</h1><hr>\r\n"//
-				+ "\t\t<string>The file \"" + request.requestedFilePath + "\" does not exist.</string><br>\r\n"//
-				+ "\t\t<string>" + pageHeader + "</string>\r\n"//
-				+ "\t</body>\r\n</html>");
-		response.sendToClient(s, request.protocol.equalsIgnoreCase("GET"));
-		connectedClients.remove(clientInfo);
-	}
-	
-	protected static final void send408Response(final Socket s, final String clientAddress) throws IOException {
-		String detectedEncodingOfStyleSheet;
-		try {
-			detectedEncodingOfStyleSheet = StringUtil.getDetectedEncoding(new File(FilenameUtils.normalize(homeDirectory.getAbsolutePath() + File.separatorChar + DEFAULT_STYLESHEET)));
-		} catch(Throwable ignored) {
-			detectedEncodingOfStyleSheet = null;
-		}
-		new HTTPServerResponse("HTTP/1.1", HTTP_408, false, StandardCharsets.UTF_8)//
-		.setHeader("Vary", "Accept-Encoding")//
-		.setHeader("Date", StringUtil.getCurrentCacheTime())//
-		.setHeader("Content-Type", "text/html; charset=UTF-8")//
-		.setHeader("Server", SERVER_NAME_HEADER)//
-		.setHeader("Cache-Control", cachePrivateMustRevalidate)//
-		.setResponse("<!DOCTYPE html>\r\n"//
-				+ "<html>\r\n\t<head>\r\n"//
-				+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
-				+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
-				+ "\t\t<link rel=\"shortcut icon\" href=\"" + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
-				+ "\t\t<title>408 - Request Timeout - " + SERVER_NAME + "</title>\r\n"//
-				+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
-				+ (detectedEncodingOfStyleSheet != null ? "\t\t<link rel=\"stylesheet\" href=\"" + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + detectedEncodingOfStyleSheet + "\">\r\n" : "")//
-				+ "\t</head>\r\n"//
-				+ "\t<body>\r\n"//
-				+ "\t\t<h1>Error 408 Request Timeout</h1><hr>\r\n"//
-				+ "\t\t<string>Your client did not send its request to this server for longer than <b>" + (requestTimeout / 1000L) + " seconds</b> and was timed out as a result.<br>Refreshing the page may fix the problem.</string><hr>\r\n"//
-				+ "<b>" + StringUtil.getIp() + ":" + s.getLocalPort() + " --&gt; " + clientAddress + "</b>\r\n"//
-				+ "\t</body>\r\n</html>").sendToClient(s, true);
-	}
-	
-	protected static final void send421Response(final Socket s, HTTPClientRequest request, HTTPServerResponse response, ClientInfo clientInfo, DomainDirectory domainDirectory, String pageHeader) throws IOException {
-		response.setStatusCode(HTTP_421);
-		response.setHeader("Vary", "Accept-Encoding");
-		response.setHeader("Content-Type", "text/html; charset=UTF-8");
-		response.setHeader("Server", SERVER_NAME_HEADER);
-		response.setHeader("Cache-Control", "public, max-age=" + (domainDirectory == null ? DEFAULT_CACHE_MAX_AGE.longValue() : domainDirectory.getCacheMaxAge()));
-		response.setHeader("Location", (domainDirectory == null ? StringUtil.getIp() : domainDirectory.getDomain()) + request.requestedFilePath + request.requestArgumentsStr);
-		response.setResponse("<!DOCTYPE html>\r\n"//
-				+ "<html>\r\n\t<head>\r\n"//
-				+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
-				+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
-				+ "\t\t<link rel=\"shortcut icon\" href=\"" + (domainDirectory == null ? DEFAULT_PAGE_ICON : domainDirectory.getDefaultPageIcon()) + "\" type=\"image/x-icon\">\r\n"//
-				+ "\t\t<title>Error 421 Misdirected Request - " + (domainDirectory == null ? SERVER_NAME : domainDirectory.getServerName()) + "</title>\r\n"//
-				+ "\t\t<style>body{font-family:\'" + (domainDirectory == null ? defaultFontFace : domainDirectory.getDefaultFontFace()) + "\';}</style>\r\n"//
-				+ ((domainDirectory == null ? true : domainDirectory.doesDefaultStyleSheetExist()) ? "\t\t<link rel=\"stylesheet\" href=\"" + (domainDirectory == null ? DEFAULT_STYLESHEET : domainDirectory.getDefaultStylesheet()) + "\" type=\"text/css\" charset=\"" + (domainDirectory == null ? Charset.defaultCharset().name() : StringUtil.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem())) + "\">\r\n" : "")//
-				+ "\t</head>\r\n"//
-				+ "\t<body>\r\n"//
-				+ "\t\t<h1>Error 421 - Misdirected Request</h1><hr>\r\n"//
-				+ "\t\t<string>The DNS Server that you/your client used to look up the ip address for the domain \"" + request.host + "\" has incorrectly returned this server's ip address(" + StringUtil.getIp() + ") resulting in this page.<br>Reconfigure your DNS settings and try again.<br>If you are attempting to use this server as a proxy, this server's proxy setting is currently set to: <b>Enabled: " + isProxyServerEnabled() + "; Password protected: " + proxyRequiresAuthorization + ";</b>.</string><br>\r\n"//
-				+ "\t\t<string>Alternately, if you are a server administrator and this domain is not improperly configured, <a href=\"http://" + request.hostNoPort + ":" + admin_listen_port + "/?page=createDomain&domainName=" + request.host + "\" target=\"_blank\">log in</a> to create a new domain with the name \"" + request.host + "\" (thereby preventing this page from showing).</string>\r\n"//
-				+ "\t\t<string>" + pageHeader + "</string>\r\n"//
-				+ "\t</body>\r\n</html>");
-		response.sendToClient(s, request.protocol.equalsIgnoreCase("GET"));
-		println("\t\t*** A client has incorrectly connected to this server thinking it has connected to \"" + request.host + "\".");
-		if(domainDirectory != null) {
-			domainDirectory.delete();//It didn't exist before this bad request occurred, so why keep it?
-			domainDirectory = null;
-			System.gc();
-		}
-		connectedClients.remove(clientInfo);
-	}
-	
-	/** @return One of the many available local ip addresses or the external ip
-	 *         address of this machine, chosen randomly */
-	public static final String getALocalIP() {
-		final int random = StringUtil.getRandomIntBetween(0, 8);
-		String rtrn = StringUtil.getIp();
-		switch(random) {
-		case 0:
-		default:
-			return "localhost";
-		case 1:
-			return "127.0.0.1";
-		case 2:
-			return StringUtil.convertIpv4ToIpv6("127.0.0.1");//http://[::ffff:7f00:1]/ where 7f = 127 and 00 = 0, and the last one = 01
-		case 3:
-			return "[::1]";
-		case 4:
-			return rtrn;
-		case 5:
-			return StringUtil.convertIpv4ToIpv6(StringUtil.getIp());
-		case 6:
-			try {
-				rtrn = InetAddress.getLocalHost().getHostAddress();
-			} catch(UnknownHostException ignored) {
-				ignored.printStackTrace();
-			}
-			return rtrn;
-		case 7:
-			try {
-				rtrn = StringUtil.convertIpv4ToIpv6(InetAddress.getLocalHost().getHostAddress());
-			} catch(UnknownHostException ignored) {
-				ignored.printStackTrace();
-			}
-			return rtrn;
-		case 8:
-			try {
-				rtrn = InetAddress.getLocalHost().getHostName();
-			} catch(UnknownHostException ignored) {
-				ignored.printStackTrace();
-			}
-			return rtrn;
-		}
-	}
-	
-	public static final boolean isDomainLocalHost(String domain) {
-		if(domain == null || domain.isEmpty()) {
-			return false;
-		}
-		domain = domain.trim();
-		if(domain.equals("127.0.0.1") || domain.equals("[::ffff:7f00:1]") || domain.equalsIgnoreCase("localhost") || domain.equals("[::1]") || domain.equals("[0:0:0:0:0:0:0:1]") || domain.equalsIgnoreCase(StringUtil.getIp()) || domain.equalsIgnoreCase(StringUtil.convertIpv4ToIpv6(StringUtil.getIp()))) {
-			return true;
-		}
-		InetAddress localHost = null;
-		try {
-			localHost = InetAddress.getLocalHost();
-			return domain.equals(localHost.getHostAddress()) || domain.equals(StringUtil.convertIpv4ToIpv6(localHost.getHostAddress())) || domain.equals(localHost.getHostName());
-		} catch(UnknownHostException ignored) {
-			return false;
-		}
-	}
-	
 	/** @param info The FileInfo
 	 * @param input The input stream
 	 * @param output The output stream
@@ -5886,6 +5548,7 @@ public final class JavaWebServer {
 			if(clientInfo != null) {
 				clientInfo.setLastWriteTime(System.currentTimeMillis());
 			}
+			output.flush();
 			count += n;
 			info.bytesTransfered = count;
 			info.isBeingWrittenTo = false;
@@ -5909,7 +5572,7 @@ public final class JavaWebServer {
 	 * @param input The input stream
 	 * @param output The output stream
 	 * @param startBytes The starting byte to get(usually zero)
-	 * @param endBytes The end byte to get, or -1 for all of them
+	 * @param endBytes The end byte to get(must be greater than startBytes)
 	 * @param clientInfo The ClientInfo to use
 	 * @return The amount of data copied
 	 * @throws IOException Thrown if an I/O exception occurs */
@@ -5917,28 +5580,59 @@ public final class JavaWebServer {
 		byte[] buffer = new byte[20480];//1024
 		long count = 0;
 		int read;
-		
-		input.skip(startBytes);
-		long toRead = (endBytes - startBytes) + 1;
-		
+		long skipped = startBytes <= 0 ? 0 : input.skip(startBytes);
+		final long length = (endBytes - startBytes) + 1;
+		printlnDebug("Start bytes: " + startBytes + "; End bytes: " + endBytes + "; Skipped bytes: " + skipped + "; Skipped equals startBytes: " + (skipped == startBytes) + "; Length: " + length + "; Total file size: " + info.contentLength);
+		info.contentLength = Long.toString(length);
+		long toRead = length;
 		info.lastWriteTime = System.currentTimeMillis();
-		while((read = input.read(buffer)) > 0) {
-			if((toRead -= read) > 0) {
+		while((read = input.read(buffer)) != -1) {
+			count += read;
+			if(info.isCancelled) {
+				return count;
+			}
+			if(info.isPaused) {
+				while(info.isPaused) {
+					try {
+						Thread.sleep(1);
+					} catch(Throwable ignored) {
+					}
+				}
+				if(info.isCancelled) {
+					return count;
+				}
+			}
+			info.isBeingWrittenTo = true;
+			long bytesLeft = length - count;
+			printlnDebug("read: " + read + "; toRead: " + toRead + "; length: " + length + "; count: " + count + "; bytesLeft: " + bytesLeft);
+			toRead -= read;
+			if(bytesLeft >= buffer.length) {
 				output.write(buffer, 0, read);
 				output.flush();
 				if(clientInfo != null) {
 					clientInfo.setLastWriteTime(System.currentTimeMillis());
 				}
+				info.bytesTransfered = count;
+				info.isBeingWrittenTo = false;
 			} else {
-				output.write(buffer, 0, (int) toRead + read);
+				output.write(buffer, 0, read);
 				output.flush();
 				if(clientInfo != null) {
 					clientInfo.setLastWriteTime(System.currentTimeMillis());
 				}
+				bytesLeft = length - count;
+				read = input.read(buffer, 0, (int) bytesLeft);
+				count += read;
+				printlnDebug("[Last one!]read: " + read + "; toRead: " + toRead + "; length: " + length + "; count: " + count + "; bytesLeft: " + bytesLeft);
+				output.write(buffer, 0, read);
+				output.flush();
+				if(clientInfo != null) {
+					clientInfo.setLastWriteTime(System.currentTimeMillis());
+				}
+				info.bytesTransfered = count;
+				info.isBeingWrittenTo = false;
 				break;
 			}
-			count += read;
-			
 			long currentTime = System.currentTimeMillis();
 			long elapsedTime = currentTime - info.lastWriteTime;
 			info.currentWriteAmount += read;
@@ -5951,52 +5645,6 @@ public final class JavaWebServer {
 				return count;
 			}
 		}
-		
-		/*byte[] buffer = new byte[1024];
-		long count = 0;
-		int read = 0;
-		if(info.isCancelled) {
-			return count;
-		}
-		long toRead = (endBytes - startBytes) + 1;
-		//println("copyTEST: toRead var: " + toRead);
-		input.skip(startBytes - 1);
-		count = startBytes - 1;
-		
-		info.lastWriteTime = System.currentTimeMillis();
-		while((read = input.read(buffer)) != -1) {
-			if(info.isCancelled) {
-				return count;
-			}
-			info.isBeingWrittenTo = true;
-			if(count >= startBytes && (count <= endBytes)) {
-				if((toRead -= read) > 0) {
-					output.write(buffer, 0, read);
-					output.flush();
-				} else {
-					output.write(buffer, 0, (int) (toRead + read));
-					output.flush();
-					break;
-				}
-				info.bytesTransfered += read;
-			}
-			count += read;
-			//info.bytesTransfered = count;
-			info.isBeingWrittenTo = false;
-			
-			long currentTime = System.currentTimeMillis();
-			long elapsedTime = currentTime - info.lastWriteTime;
-			info.currentWriteAmount += read;
-			if(elapsedTime >= 1000L) {
-				info.lastWriteTime = currentTime;
-				info.lastWriteAmount = info.currentWriteAmount;
-				info.currentWriteAmount = 0L;
-			}
-			if(info.isCancelled) {
-				return count;
-			}
-		}
-		info.isBeingWrittenTo = false;*/
 		return count;
 	}
 	

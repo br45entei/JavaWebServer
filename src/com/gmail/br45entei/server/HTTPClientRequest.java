@@ -4,6 +4,7 @@ import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FormURLEncodedData;
 import com.gmail.br45entei.server.data.MultipartFormData;
+import com.gmail.br45entei.util.AddressUtil;
 import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.StringUtil;
 
@@ -15,6 +16,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.Socket;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.Map.Entry;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
@@ -375,7 +377,7 @@ public class HTTPClientRequest {
 						this.http2Host = this.requestedFilePath.substring(startIndex, endIndex);
 						this.host = this.http2Host;
 						this.requestedFilePath = this.requestedFilePath.substring(endIndex);
-						this.isProxyRequest = (!this.http2Host.isEmpty() ? DomainDirectory.getDomainDirectoryFromDomainName(this.http2Host) == null : false) || StringUtil.getPortFromAddress(this.requestedServerAddress) == 443;
+						this.isProxyRequest = (!this.http2Host.isEmpty() ? DomainDirectory.getDomainDirectoryFromDomainName(this.http2Host) == null : false) || AddressUtil.getPortFromAddress(this.requestedServerAddress) == 443;
 						if(this.isProxyRequest) {
 							this.requestedServerAddress = this.http2Host;
 							printlnDebug("requestedServerAddress: " + this.requestedServerAddress);
@@ -527,6 +529,30 @@ public class HTTPClientRequest {
 			PrintUtil.printToConsole();
 			PrintUtil.printErrToConsole();
 		}
+	}
+	
+	private volatile String	toStringStr	= null;
+	
+	@Override
+	public final String toString() {
+		if(this.toStringStr != null) {
+			return this.toStringStr;
+		}
+		String str = this.protocolRequest + "\r\n";
+		for(Entry<String, String> entry : this.headers.entrySet()) {
+			String header = entry.getKey();
+			String value = entry.getValue();
+			str += header + ": " + value + "\r\n";
+		}
+		str += "\r\n";
+		if(this.postRequestData != null && this.postRequestData.length > 0) {
+			String s = new String(this.postRequestData);
+			if(s.length() < 20000) {
+				str += s;
+			}
+		}
+		this.toStringStr = str;
+		return this.toStringStr;
 	}
 	
 	public final void cancel() {

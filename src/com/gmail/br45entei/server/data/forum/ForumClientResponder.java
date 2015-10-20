@@ -4,6 +4,7 @@ import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.server.HTTPClientRequest;
 import com.gmail.br45entei.server.HTTPServerResponse;
 import com.gmail.br45entei.server.data.DomainDirectory;
+import com.gmail.br45entei.util.AddressUtil;
 import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.StringUtil;
 
@@ -36,7 +37,7 @@ public final class ForumClientResponder {
 		if(s == null || s.isClosed() || domainDirectory == null || request == null || response == null) {
 			return false;
 		}
-		final String clientAddress = StringUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
+		final String clientAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
 		if(request.protocol.equalsIgnoreCase("GET") || request.protocol.equalsIgnoreCase("HEAD") || request.protocol.equalsIgnoreCase("OPTIONS")) {
 			ForumData forum = ForumData.getForumDataFromRequestedFilePath(request.requestedFilePath);
 			if(forum == null || !forum.isDomainAllowed(domainDirectory)) {

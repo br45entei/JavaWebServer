@@ -9,13 +9,9 @@ import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.StringWriter;
 import java.io.Writer;
-import java.net.InetAddress;
-import java.net.URL;
 import java.net.URLDecoder;
-import java.net.UnknownHostException;
 import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -57,32 +53,6 @@ public strictfp class StringUtil {
 	public static final String		cacheValidatorTimePattern	= "EEE, dd MMM yyyy HH:mm:ss 'GMT'";
 	public static final Locale		cacheValidatorTimeLocale	= Locale.US;
 	public static final TimeZone	cacheValidatorTimeFormat	= TimeZone.getTimeZone("GMT");
-	
-	/** @param ip The Ipv4 address to convert
-	 * @return The converted address in Ipv6, or the original ip if the
-	 *         conversion failed. */
-	public static final String convertIpv4ToIpv6(String ip) {
-		if(ip == null || ip.isEmpty()) {
-			return ip;
-		}
-		String port = "";
-		if(ip.contains(":")) {
-			port = ip.substring(ip.indexOf(":"));
-			ip = ip.substring(0, ip.indexOf(":"));
-		}
-		String[] octets = ip.split("\\.");
-		if(octets.length == 4) {
-			final String s1 = Integer.toHexString(Integer.parseInt(octets[0])) + convertIntToHex(Integer.parseInt(octets[1]));
-			final String s2 = Integer.toHexString(Integer.parseInt(octets[2])) + convertIntToHex(Integer.parseInt(octets[3]));
-			return "[::ffff:" + (s1.startsWith("00") ? s1.substring(2) : s1) + ":" + (s2.startsWith("00") ? s2.substring(2) : s2) + "]" + port;
-		}
-		return ip;
-	}
-	
-	private static final String convertIntToHex(int i) {
-		String rtrn = Integer.toHexString(i);
-		return rtrn.length() == 1 ? "0" + rtrn : rtrn;
-	}
 	
 	public static final void main(String[] args) {
 		/*String test = "<html>\r\n"//
@@ -150,6 +120,26 @@ public strictfp class StringUtil {
 		return count + 1;
 	}
 	
+	public static final String requestArgumentsToString(HashMap<String, String> requestArguments, String... argumentsToIgnore) {
+		String rtrn = "?";
+		final HashMap<String, String> reqArgs = new HashMap<>(requestArguments);
+		for(Entry<String, String> entry : requestArguments.entrySet()) {
+			if(entry.getKey() != null) {
+				for(String argToIgnore : argumentsToIgnore) {
+					if(entry.getKey().equals(argToIgnore)) {
+						reqArgs.remove(entry.getKey());
+					}
+				}
+			}
+		}
+		boolean addedAnyArguments = false;
+		for(Entry<String, String> entry : reqArgs.entrySet()) {
+			rtrn += (addedAnyArguments ? "&" : "") + entry.getKey() + "=" + entry.getValue();
+			addedAnyArguments = true;
+		}
+		return rtrn.equals("?") ? "" : rtrn;
+	}
+	
 	/** @param args The string array to copy
 	 * @param seperatorChar The character to use to separate the elements in the
 	 *            string array
@@ -212,113 +202,6 @@ public strictfp class StringUtil {
 	 *             represent a valid long value */
 	public static final Long getLongFromStr(String str) throws NumberFormatException {
 		return Long.valueOf(str);
-	}
-	
-	public static final String getClientAddress(String address) {
-		if(address == null || address.isEmpty()) {
-			return "";
-		}
-		if(address.contains(":")) {
-			int index1 = address.indexOf(":");
-			int index2 = address.lastIndexOf(":");
-			if(index1 == index2) {
-				return address;//IPv4
-			}
-			return ("[" + address.substring(0, index2) + "]" + address.substring(index2, address.length())).replace("%10", "").replace("%11", "");//IPv6
-		}
-		return address;
-	}
-	
-	public static final String getClientAddressNoPort(String address) {
-		address = getClientAddress(address);
-		if(address.contains("]:")) {
-			return address.substring(0, address.lastIndexOf("]:")) + "]";//IPv6
-		}
-		if(address.contains(":")) {
-			return address.substring(0, address.lastIndexOf(":"));//IPv4
-		}
-		return address;
-	}
-	
-	private static String	ipAddress	= null;
-	
-	/** @return This machine's external ip address(or local, if the external could
-	 *         not be determined) */
-	public static final String getIp() {
-		if(ipAddress == null) {
-			try {
-				URL whatismyip = new URL("http://checkip.amazonaws.com");
-				try(BufferedReader in = new BufferedReader(new InputStreamReader(whatismyip.openStream()))) {
-					ipAddress = in.readLine();
-				}
-			} catch(Throwable e) {
-				System.err.println("Unable to retrieve this machine's external ip: " + e.getMessage());//PrintUtil.printThrowable(e);
-				try {
-					ipAddress = InetAddress.getLocalHost().toString();
-				} catch(UnknownHostException e1) {
-					ipAddress = "";
-				}
-			}
-		}
-		if(ipAddress == null) {
-			ipAddress = "";
-		}
-		return ipAddress;
-	}
-	
-	public static final String checkIfHostIsValid(String host) {
-		if(host == null || host.trim().isEmpty()) {
-			return StringUtil.getIp();
-		}
-		String port = "";
-		if(host.contains(":")) {
-			if(!host.contains("]")) {
-				port = host.substring(host.lastIndexOf(":"), host.length());
-				host = host.substring(0, host.lastIndexOf(":"));
-			} else {
-				/*port = host.substring(host.indexOf("]"), host.length());
-				if(port.startsWith("]")) {
-					port = port.substring(1);
-				}
-				host = host.substring(0, host.indexOf("]") + 1);*/
-				return host/* + port*/;
-			}
-		}
-		boolean isHostValid;
-		try {
-			isHostValid = InetAddress.getByName(host) != null;
-		} catch(Throwable ignored) {
-			isHostValid = false;
-		}
-		if(host.isEmpty() || !isHostValid) {
-			host = StringUtil.getIp();
-		}
-		return host + port;
-	}
-	
-	public static final int getPortFromAddress(String address) {
-		int p = -1;
-		if(address == null || address.trim().isEmpty()) {
-			return p;
-		}
-		String port = "";
-		if(address.contains(":")) {
-			if(!address.contains("]")) {
-				port = address.substring(address.lastIndexOf(":"), address.length());
-			} else {
-				port = address.substring(address.indexOf("]"), address.length());
-				if(port.startsWith("]")) {
-					port = port.substring(1);
-				}
-			}
-		}
-		if(port.startsWith(":")) {
-			port = port.substring(1);
-		}
-		if(isStrLong(port)) {
-			p = Long.valueOf(port).intValue();
-		}
-		return p;
 	}
 	
 	/** @param time The time to convert

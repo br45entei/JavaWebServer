@@ -1,7 +1,7 @@
 package com.gmail.br45entei.server;
 
 import com.gmail.br45entei.server.data.DomainDirectory;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.AddressUtil;
 
 import java.net.Socket;
 import java.util.ArrayList;
@@ -55,7 +55,7 @@ public class ClientRequestStatus implements ClientStatus {
 	@Override
 	public final String getClientAddress() {
 		if(this.clientAddress == null || this.clientAddress.isEmpty()) {
-			this.clientAddress = this.client != null ? StringUtil.getClientAddress((this.client.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(this.client.getRemoteSocketAddress().toString(), "/", "") : "") : "";
+			this.clientAddress = this.client != null ? AddressUtil.getClientAddress((this.client.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(this.client.getRemoteSocketAddress().toString(), "/", "") : "") : "";
 		}
 		return this.clientAddress;
 	}
