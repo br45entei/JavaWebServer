@@ -65,6 +65,7 @@ public class HTTPClientRequest {
 	public String							authorization			= "";
 	public String							ifModifiedSince			= "";
 	public String							ifNoneMatch				= "";
+	public String							ifRange					= "";
 	public String							xForwardedFor			= "";
 	public String							via						= "";
 	public ForwardedHeaderData				forwardedHeader			= new ForwardedHeaderData("");
@@ -477,6 +478,8 @@ public class HTTPClientRequest {
 					this.ifModifiedSince = line.substring("If-Modified-Since:".length()).trim();
 				} else if(line.toLowerCase().startsWith("if-none-match: ")) {
 					this.ifNoneMatch = line.substring("If-None-Match:".length()).trim();
+				} else if(line.toLowerCase().startsWith("if-range: ")) {
+					this.ifRange = line.substring("If-Range:".length()).trim();
 				} else if(line.toLowerCase().startsWith("client-ip: ")) {
 					this.xForwardedFor = line.substring("Client-IP:".length()).trim();
 				} else if(line.toLowerCase().startsWith("x-forwarded-for: ")) {

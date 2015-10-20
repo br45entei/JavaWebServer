@@ -22,6 +22,8 @@ public final class ClientInfo implements ClientStatus {
 	/** This connection's Universally Unique Identifier */
 	public final UUID		uuid;
 	
+	//TODO Remove the header information below, as it is already stored in HTTPClientRequest
+	
 	/** The HTTP protocol request that the client sent(i.e. GET, HEAD, POST,
 	 * etc) */
 	public final String		protocolRequest;
@@ -54,6 +56,8 @@ public final class ClientInfo implements ClientStatus {
 	public final String		authorization;
 	/** HTTP header sent by the client */
 	public final String		ifModifiedSince;
+	/** HTTP header sent by the client */
+	public final String		ifRange;
 	/** HTTP header sent by the client */
 	public final String		ifNoneMatch;
 	private long			lastWriteTime	= System.currentTimeMillis();
@@ -92,7 +96,7 @@ public final class ClientInfo implements ClientStatus {
 	 * @param ifModifiedSince A date header sent by the client used to
 	 *            determine if the file has been modified since that date
 	 * @param ifNoneMatch HTTP header sent by the client */
-	public ClientInfo(Socket client, FileInfo requestedFile, String protocolRequest, String host, String connectionSetting, String cacheControl, String accept, String userAgent, String dnt, String referrerLink, String acceptEncoding, String acceptLanguage, String from, String cookie, String range, String authorization, String ifModifiedSince, String ifNoneMatch) {
+	public ClientInfo(Socket client, FileInfo requestedFile, String protocolRequest, String host, String connectionSetting, String cacheControl, String accept, String userAgent, String dnt, String referrerLink, String acceptEncoding, String acceptLanguage, String from, String cookie, String range, String authorization, String ifModifiedSince, String ifNoneMatch, String ifRange) {
 		this.client = client;
 		this.startTime = System.currentTimeMillis();
 		this.requestedFile = requestedFile;
@@ -113,6 +117,7 @@ public final class ClientInfo implements ClientStatus {
 		this.authorization = authorization;
 		this.ifModifiedSince = ifModifiedSince;
 		this.ifNoneMatch = ifNoneMatch;
+		this.ifRange = ifRange;
 	}
 	
 	@Override

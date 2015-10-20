@@ -623,10 +623,10 @@ public final class DomainDirectory implements DisposableUUIDData {
 			}
 		}
 		if((requestedFile == null || !requestedFile.exists())) {
-			if(requestedFilePath.equalsIgnoreCase("/favicon.ico")) {
+			if(requestedFilePath.equalsIgnoreCase(JavaWebServer.DEFAULT_PAGE_ICON)) {
 				requestedFilePath = this.getDefaultPageIcon();
 				requestedFile = new File(homeDirectory, StringUtil.decodeHTML(this.replaceAliasWithPath(requestedFilePath)));
-			} else if(requestedFilePath.equalsIgnoreCase("/layout.css")) {
+			} else if(requestedFilePath.equalsIgnoreCase(JavaWebServer.DEFAULT_STYLESHEET)) {
 				File check = this.getDefaultStyleSheetFromFileSystem();
 				requestedFile = check.exists() ? check : requestedFile;
 			}

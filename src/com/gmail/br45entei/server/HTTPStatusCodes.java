@@ -50,7 +50,6 @@ public enum HTTPStatusCodes {
 	HTTP_418("I'm a teapot")/*XD wut?*/,
 	HTTP_419("Authentication Timeout"),
 	HTTP_420("Method Failure"),
-	HTTP_420_1("Enhance Your Calm"),
 	HTTP_421("Misdirected Request")/* HTTP/2.0 */,
 	HTTP_422("Unprocessable Entity"),
 	HTTP_423("Locked"),
@@ -89,6 +88,7 @@ public enum HTTPStatusCodes {
 	HTTP_23("Display detected, turn it off please"),
 	HTTP_42("42"),
 	HTTP_88("Site contains NML (Nazi Markup Language), refused!"),
+	HTTP_420_1("Enhance Your Calm"),
 	HTTP_666("Site is evil!"),
 	HTTP_1337("700 1337 f0R j00, K1dD0"),
 	HTTP_TYPO3("Site uses TYPO3, switch to WordPress to continue");

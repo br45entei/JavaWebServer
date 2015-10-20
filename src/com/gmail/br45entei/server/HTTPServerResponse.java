@@ -34,6 +34,11 @@ public class HTTPServerResponse {
 	
 	//===
 	
+	protected volatile long					startBytes		= 0L;
+	protected volatile long					endBytes		= -1L;
+	
+	//===
+	
 	protected String						statusMessage	= "";
 	
 	public HTTPServerResponse(String httpVersion, HTTPStatusCodes statusCode, boolean useGZip, Charset charset) {
@@ -141,6 +146,35 @@ public class HTTPServerResponse {
 		return this;
 	}
 	
+	public final long getStartBytes() {
+		return this.startBytes;
+	}
+	
+	public final HTTPServerResponse setStartBytes(long startBytes) {
+		this.startBytes = startBytes;
+		return this;
+	}
+	
+	public final long getEndBytes() {
+		return this.endBytes;
+	}
+	
+	public final HTTPServerResponse setEndBytes(long endBytes) {
+		this.endBytes = endBytes;
+		return this;
+	}
+	
+	protected final boolean isRangeResponse() {
+		return this.responseFile != null && this.endBytes > this.startBytes && this.startBytes >= 0;
+	}
+	
+	public final long getContentLength() {
+		if(this.isRangeResponse()) {
+			return (this.endBytes - this.startBytes) + 1;
+		}
+		return this.responseFile != null ? Long.valueOf(this.responseFile.contentLength).longValue() : this.response.length();
+	}
+	
 	public final void sendToClient(Socket s, boolean sendResponse) throws IOException {
 		if(s == null) {
 			return;
@@ -148,12 +182,15 @@ public class HTTPServerResponse {
 		final OutputStream outStream = s.getOutputStream();
 		@SuppressWarnings("resource")
 		final PrintWriter pr = new PrintWriter(new OutputStreamWriter(outStream, this.charset), true);
+		if(this.isRangeResponse()) {
+			this.setStatusCode(HTTPStatusCodes.HTTP_206);
+		}
 		JavaWebServer.println("\t*** " + this.httpVersion + " " + this.statusCode + (this.statusMessage != null && this.statusMessage.isEmpty() ? "" : ": " + this.statusMessage));
 		pr.println(this.httpVersion + " " + this.statusCode);
 		this.markWriteTime();
 		for(Entry<String, String> entry : this.headers.entrySet()) {
 			if(sendResponse) {
-				if(!entry.getKey().equalsIgnoreCase("Content-Length") && (this.useGZip ? !entry.getKey().equalsIgnoreCase("Content-Encoding") : true)) {
+				if(!entry.getKey().equalsIgnoreCase("Content-Length") && !entry.getKey().equalsIgnoreCase("Content-Range") && (this.useGZip ? !entry.getKey().equalsIgnoreCase("Content-Encoding") : true)) {
 					pr.println(entry.getKey() + ": " + entry.getValue());
 					this.markWriteTime();
 				}
@@ -195,14 +232,24 @@ public class HTTPServerResponse {
 			} else {
 				File responseFile = new File(this.responseFile.filePath);
 				if(responseFile.exists() && responseFile.isFile()) {
-					pr.println("Content-Length: " + this.responseFile.contentLength);
+					if(this.isRangeResponse()) {
+						pr.println("Content-Length: " + this.getContentLength());
+						pr.println("Content-Range: bytes " + this.startBytes + "-" + this.endBytes + "/" + this.responseFile.contentLength);
+					} else {
+						pr.println("Content-Length: " + this.responseFile.contentLength);
+					}
 					pr.println("");
+					pr.flush();
 					this.markWriteTime();
 					if(sendResponse) {
 						InputStream fileIn = responseFile.toURI().toURL().openConnection().getInputStream();
 						IOException exception = null;
 						try {
-							JavaWebServer.copyInputStreamToOutputStream(this.responseFile, fileIn, outStream, (this.domainDirectory == null ? 1024 : this.domainDirectory.getNetworkMTU()), this.clientInfo);
+							if(this.isRangeResponse()) {
+								JavaWebServer.copyInputStreamToOutputStream(this.responseFile, fileIn, outStream, this.startBytes, this.endBytes, this.clientInfo);
+							} else {
+								JavaWebServer.copyInputStreamToOutputStream(this.responseFile, fileIn, outStream, (this.domainDirectory == null ? 1024 : this.domainDirectory.getNetworkMTU()), this.clientInfo);
+							}
 						} catch(IOException e) {
 							exception = e;
 						}

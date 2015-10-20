@@ -24,9 +24,21 @@ public class NaughtyClientData {
 	public volatile String	clientIp		= "";
 	public volatile long	inSinBinUntil	= -1L;
 	public volatile String	banReason		= "";
+	public volatile int		warnCount		= 0;
 	
 	public NaughtyClientData(UUID uuid) {
 		this.uuid = uuid;
+	}
+	
+	public final boolean isBanned() {
+		if(this.inSinBinUntil == -1L) {
+			return true;
+		}
+		long timeLeftUntilBanLift = System.currentTimeMillis() - this.inSinBinUntil;
+		if(timeLeftUntilBanLift > 0) {
+			return true;
+		}
+		return this.warnCount > 3;
 	}
 	
 	public final void loadFromFile(File file) {
@@ -46,6 +58,10 @@ public class NaughtyClientData {
 						}
 					} else if(pname.equalsIgnoreCase("banReason")) {
 						this.banReason = pvalue;
+					} else if(pname.equalsIgnoreCase("warnCount")) {
+						if(StringUtil.isStrLong(pvalue)) {
+							this.warnCount = Long.valueOf(pvalue).intValue();
+						}
 					}
 				}
 			}
@@ -58,6 +74,7 @@ public class NaughtyClientData {
 			pr.println("ipAddress=" + this.clientIp);
 			pr.println("bannedUntil=" + this.inSinBinUntil);
 			pr.println("banReason=" + this.banReason);
+			pr.println("warnCount=" + this.warnCount);
 			return true;
 		} catch(IOException e) {
 			LogUtils.error("Unable to save banned client data:", e);

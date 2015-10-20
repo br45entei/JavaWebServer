@@ -6,6 +6,7 @@ import com.gmail.br45entei.server.ClientRequestStatus;
 import com.gmail.br45entei.server.HTTPClientRequest;
 import com.gmail.br45entei.server.HTTPServerResponse;
 import com.gmail.br45entei.server.HTTPStatusCodes;
+import com.gmail.br45entei.server.RangeRequest;
 import com.gmail.br45entei.server.RequestResult;
 import com.gmail.br45entei.server.SocketConnectResult;
 import com.gmail.br45entei.server.data.ClientConnectTime;
@@ -101,6 +102,7 @@ import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_409;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_413;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_418;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_421;
+import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_429;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_501;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_502;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_504;
@@ -231,6 +233,15 @@ public final class JavaWebServer {
 	
 	//=======================
 	
+	public static final NaughtyClientData getNaughtyClientDataFor(String ip) {
+		for(NaughtyClientData naughty : new ArrayList<>(sinBin)) {
+			if(naughty.clientIp.equalsIgnoreCase(ip)) {
+				return naughty;
+			}
+		}
+		return null;
+	}
+	
 	public static final NaughtyClientData getBannedClient(String ip) {
 		for(NaughtyClientData naughty : new ArrayList<>(sinBin)) {
 			if(naughty.clientIp.equalsIgnoreCase(ip)) {
@@ -241,41 +252,63 @@ public final class JavaWebServer {
 				if(timeLeftUntilBanLift > 0) {
 					return naughty;
 				}
-				sinBin.remove(naughty);
+				if(naughty.warnCount <= 0) {
+					sinBin.remove(naughty);
+				}
 				return null;
 			}
 		}
 		return null;
 	}
 	
-	public static final boolean isIpBanned(String ip, boolean newConnection) {
-		ip = AddressUtil.getClientAddressNoPort(ip);
-		if(getBannedClient(ip) != null) {
-			return true;
+	public static final ClientConnectTime getClientConnectTimeFor(String ip) {
+		ClientConnectTime clientData = clientConnectionData.get(ip);
+		if(clientData == null) {
+			clientData = new ClientConnectTime();
 		}
-		if(newConnection) {
-			ClientConnectTime clientData = clientConnectionData.get(ip);
-			if(clientData == null) {
-				clientData = new ClientConnectTime();
-			}
-			int numberOfConnections = 1;
-			clientData.lastConnectionTime = System.currentTimeMillis();
-			for(Socket s : new ArrayList<>(sockets)) {
-				if(s != null && !s.isClosed()) {
-					final String curIp = AddressUtil.getClientAddressNoPort((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
-					if(curIp.equalsIgnoreCase(ip)) {
-						numberOfConnections++;
-					}
+		int numberOfConnections = 1;
+		clientData.lastConnectionTime = System.currentTimeMillis();
+		for(Socket s : new ArrayList<>(sockets)) {
+			if(s != null && !s.isClosed()) {
+				final String curIp = AddressUtil.getClientAddressNoPort((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
+				if(curIp.equalsIgnoreCase(ip)) {
+					numberOfConnections++;
 				}
 			}
-			clientData.numberOfConnections = numberOfConnections;
+		}
+		clientData.numberOfConnections = numberOfConnections;
+		return clientData;
+	}
+	
+	public static final void incrementWarnCountFor(String ip) {
+		NaughtyClientData check = getNaughtyClientDataFor(ip);
+		if(check == null) {
+			ClientConnectTime cct = getClientConnectTimeFor(ip);
+			NaughtyClientData naughty = new NaughtyClientData(UUID.randomUUID());
+			naughty.banReason = "Too many connected clients at the same time";
+			naughty.inSinBinUntil = System.currentTimeMillis() + 10800000 + ((6 - cct.numberOfConnections) * 10800000);
+			naughty.clientIp = ip;
+			naughty.warnCount++;
+			naughty.saveToFile();
+			sinBin.add(naughty);
+		} else {
+			check.warnCount++;
+			check.saveToFile();
+		}
+	}
+	
+	public static final boolean isIpBanned(String ip, boolean newConnection) {
+		ip = AddressUtil.getClientAddressNoPort(ip);
+		NaughtyClientData check = getNaughtyClientDataFor(ip);//getBannedClient(ip);
+		if(check != null) {
+			if(check.isBanned()) {
+				return true;
+			}
+		}
+		if(newConnection) {
+			ClientConnectTime clientData = getClientConnectTimeFor(ip);
 			if(clientData.seemsMalicious()) {
-				NaughtyClientData naughty = new NaughtyClientData(UUID.randomUUID());
-				naughty.banReason = "Too many connected clients at the same time";
-				naughty.inSinBinUntil = System.currentTimeMillis() + 10800000 + ((6 - numberOfConnections) * 10800000);
-				naughty.clientIp = ip;
-				naughty.saveToFile();
-				sinBin.add(naughty);
+				incrementWarnCountFor(ip);
 			}
 			return isIpBanned(ip, false);
 		}
@@ -777,7 +810,7 @@ public final class JavaWebServer {
 			folder.mkdirs();
 		}
 		for(NaughtyClientData naughty : new ArrayList<>(sinBin)) {
-			if(isIpBanned(naughty.clientIp, false)) {
+			if(naughty.isBanned() || naughty.warnCount > 1) {//if(isIpBanned(naughty.clientIp, false) || naughty.warnCount > 1) {
 				naughty.saveToFile();
 			} else {
 				naughty.deleteSaveFile();
@@ -1455,8 +1488,12 @@ public final class JavaWebServer {
 	 * @param requestArguments Any URL parameters passed on from the
 	 *            requestedFilePath */
 	private static void serveFileToClient(final Socket s, boolean keepAlive, boolean https, final OutputStream outStream, final HTTPServerResponse response, final ClientInfo clientInfo, final DomainDirectory domainDirectory, final String protocol, final String requestedFilePath, final String version, final HashMap<String, String> requestArguments, final String requestArgumentsStr, final HTTPClientRequest request) throws IOException {
+		final String clientIPAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
+		final ClientConnectTime cct = getClientConnectTimeFor(clientIPAddress);
+		final boolean connectionSeemsMalicious = cct.seemsMalicious();
 		connectedClients.add(clientInfo);
 		response.setClientInfo(clientInfo);
+		
 		final String httpProtocol = (https ? "https://" : "http://");
 		final FileInfo info = clientInfo.requestedFile;
 		File requestedFile = new File(info.filePath);
@@ -1467,7 +1504,7 @@ public final class JavaWebServer {
 		final URLConnection conn = fileURL.openConnection();
 		//final long contentLength = conn.getContentLengthLong();
 		
-		final String clientAddress = request.xForwardedFor.isEmpty() ? AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "") : request.xForwardedFor;
+		final String clientAddress = request.xForwardedFor.isEmpty() ? clientIPAddress : request.xForwardedFor;
 		
 		final String fileLink = StringUtil.encodeHTML(httpProtocol + (clientInfo.host + domainDirectory.replacePathWithAlias(requestedFilePath))).replace(" ", "%20");
 		
@@ -1555,7 +1592,7 @@ public final class JavaWebServer {
 			final String fileExt = FilenameUtils.getExtension(info.fileName);
 			if(fileExt.equalsIgnoreCase("php") && PhpResult.isPhpFilePresent()) {
 				response.setStatusMessage("PHP file");
-				response.setStatusCode(HTTP_200);
+				response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
 				response.setHTTPVersion(versionToUse);
 				PhpResult phpResponse = PhpResult.execPHP(requestedFile.getAbsolutePath(), requestArgumentsStr.replace("?", "").replace("&", " "), true, false);
 				for(String header : phpResponse.headers.split("\r\n")) {
@@ -1574,29 +1611,42 @@ public final class JavaWebServer {
 			} else if(fileExt.equalsIgnoreCase("php")) {
 				printErrln("\t*** Warning! Requested file is a php file, but the php setting in the\r\n\t\"" + rootDir.getAbsolutePath() + File.separatorChar + optionsFileName + "\"\r\n\tfile either refers to a non-existant file or is not defined.\r\n\tTo fix this, type phpExeFilePath= and then the complete path to the main php\r\n\texecutable file(leaving no space after the equal symbol).\r\n\tYou can download php binaries here: http://php.net/downloads.php\r\n\tIf this is not corrected, any php files requested by incoming clients will be downloaded rather than executed.");
 			}
-			if(!clientInfo.range.isEmpty()/* && !clientInfo.range.equalsIgnoreCase("bytes=0-") */&& allowByteRangeRequests) {
-				printlnDebug("TEST 1: range: \"" + clientInfo.range + "\";");
-				String[] rangeSplit = clientInfo.range.replace("bytes=", "").split("-");
-				if(rangeSplit.length == 2 || (clientInfo.range.endsWith("-") && rangeSplit.length == 1)) {
-					printlnDebug("TEST 2: rangeSplit.length: " + rangeSplit.length);
+			final long lastModified = requestedFile.lastModified();
+			boolean modifiedSince = false;
+			if(!clientInfo.ifModifiedSince.isEmpty()) {
+				try {
+					long clientModifiedReq = StringUtil.getCacheValidatorTimeFormat().parse(clientInfo.ifModifiedSince).getTime();
+					if(lastModified > clientModifiedReq) {
+						modifiedSince = true;
+					}
+				} catch(ParseException | NumberFormatException e) {
+					//e.printStackTrace();
+					modifiedSince = true;
+				}
+			} else {
+				modifiedSince = true;
+			}
+			boolean ifRange = true;
+			if(!clientInfo.ifRange.isEmpty()) {
+				try {
+					long clientModifiedReq = StringUtil.getCacheValidatorTimeFormat().parse(clientInfo.ifRange).getTime();
+					if(lastModified <= clientModifiedReq) {
+						ifRange = false;
+					}
+				} catch(ParseException | NumberFormatException e) {
+					//e.printStackTrace();
+				}
+			}
+			String length = info.contentLength;
+			final long contentLength = StringUtil.getLongFromStr(length).longValue();
+			final String contentRange = "0-" + (contentLength - 1) + "/" + info.contentLength;
+			if(!clientInfo.range.isEmpty() && allowByteRangeRequests) {
+				if(ifRange) {
 					try {
-						String length = info.contentLength;
-						final long contentLength = StringUtil.getLongFromStr(length).longValue();
-						printlnDebug("TEST 3: content length: " + contentLength);
-						
-						long startBytes = StringUtil.getLongFromStr(rangeSplit[0]).longValue();
-						printlnDebug("TEST 4: start bytes: " + startBytes);
-						long endBytes;
-						if(clientInfo.range.endsWith("-")) {
-							endBytes = contentLength - 1;
-						} else {
-							endBytes = StringUtil.getLongFromStr(rangeSplit[1]).longValue();
-						}
-						printlnDebug("TEST 5: end bytes: " + endBytes);
-						if((startBytes >= 0 && startBytes < contentLength) && (endBytes > startBytes && endBytes <= contentLength)) {
+						RangeRequest range = new RangeRequest(clientInfo.range, contentLength);
+						if(range.isValid()) {
 							printlnDebug("TEST 6: values are in range of file size.");
-							println("\t*** 206 Partial Content(Byte range) Requested: " + startBytes + "-" + endBytes + " /" + contentLength);
-							long l = (endBytes - startBytes) + 1;
+							println("\t*** 206 Partial Content(Byte range) Requested: " + range.startBytes + "-" + range.endBytes + " /" + contentLength);
 							PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
 							out.println("HTTP/1.1 206 Partial Content");
 							out.println("Vary: Accept-Encoding");
@@ -1605,9 +1655,9 @@ public final class JavaWebServer {
 							out.println("Cache-Control: " + (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
 							out.println("Date: " + StringUtil.getCurrentCacheTime());
 							out.println("Last-Modified: " + StringUtil.getCacheTime(requestedFile.lastModified()));
-							out.println("Content-Length: " + l);//info.contentLength);
+							out.println("Content-Length: " + range.rangeLength);//info.contentLength);
 							out.println("Accept-Ranges: bytes");
-							out.println("Content-Range: bytes " + startBytes + "-" + endBytes + "/" + contentLength);
+							out.println("Content-Range: bytes " + range.startBytes + "-" + range.endBytes + "/" + contentLength);
 							out.println("");
 							out.flush();
 							if(protocol.equalsIgnoreCase("GET")) {
@@ -1623,8 +1673,8 @@ public final class JavaWebServer {
 								printlnDebug("TEST 8: file input stream established.");
 								IOException exception = null;
 								try {
-									long sentBytes = copyInputStreamToOutputStream(info, fileIn, outStream, startBytes, endBytes, clientInfo);
-									printlnDebug("DEBUG: Sent Bytes matches length: " + ((sentBytes == l) ? "true" : "false; Sent bytes: " + sentBytes));
+									long sentBytes = copyInputStreamToOutputStream(info, fileIn, outStream, range.startBytes, range.endBytes, clientInfo);
+									printlnDebug("DEBUG: Sent Bytes matches length: " + ((sentBytes == range.rangeLength) ? "true" : "false; Sent bytes: " + sentBytes));
 									println("\t\t\tSent file \r\n\t\t\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t\t to client \"" + clientAddress + "\" successfully.");
 								} catch(IOException e) {
 									printlnDebug("\t /!\\\tFailed to send file \r\n\t/___\\\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t to client \"" + clientAddress + "\": " + LogUtils.throwableToStr(e));
@@ -1645,45 +1695,24 @@ public final class JavaWebServer {
 							connectedClients.remove(clientInfo);
 							return;
 						}
-						throw new NumberFormatException();
-					} catch(NumberFormatException e) {
-						//e.printStackTrace();
-						println("\t*** HTTP/1.1 416 Requested Range Not Satisfiable(\"" + clientInfo.range + "\")");
-						PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
-						out.println("HTTP/1.1 416 Requested Range Not Satisfiable");
-						out.println("");
-						out.flush();
-						//out.close();
-						//s.close();
-						connectedClients.remove(clientInfo);
-						return;
+					} catch(NumberFormatException ignored) {
 					}
+					println("\t*** HTTP/1.1 416 Requested Range Not Satisfiable(\"" + clientInfo.range + "\")");
+					PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
+					out.println("HTTP/1.1 416 Requested Range Not Satisfiable");
+					out.println("Content-Range: " + contentRange);
+					out.println("");
+					out.flush();
+					//out.close();
+					//s.close();
+					connectedClients.remove(clientInfo);
+					return;
 				}
-				println("\t*** HTTP/1.1 416 Requested Range Not Satisfiable(\"" + clientInfo.range + "\")");
-				PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
-				out.println("HTTP/1.1 416 Requested Range Not Satisfiable");
-				out.println("");
-				out.flush();
-				//out.close();
-				//s.close();
-				connectedClients.remove(clientInfo);
-				return;
-			}
-			boolean modifiedSince = true;
-			if(!clientInfo.ifModifiedSince.isEmpty()) {
-				try {
-					long lastModified = requestedFile.lastModified();
-					long clientModifiedReq = StringUtil.getCacheValidatorTimeFormat().parse(clientInfo.ifModifiedSince).getTime();
-					if(lastModified <= clientModifiedReq) {
-						modifiedSince = false;
-					}
-				} catch(ParseException | NumberFormatException e) {
-					//e.printStackTrace();
-				}
+				modifiedSince = true;
 			}
 			if(modifiedSince) {
 				response.setHTTPVersion(versionToUse);
-				response.setStatusCode(HTTP_200);
+				response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
 				response.setHeader("Vary", "Accept-Encoding");
 				
 				String autoCloseCheck = requestArguments.get("autoClose");
@@ -1701,7 +1730,7 @@ public final class JavaWebServer {
 						response.setHeader("Cache-Control", (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
 						response.setHeader("Date", StringUtil.getCurrentCacheTime());
 						response.setHeader("Last-Modified", StringUtil.getCacheTime(requestedFile.lastModified()));
-						response.setHeader("Accept-Ranges", "none");
+						response.setHeader("Accept-Ranges", allowByteRangeRequests ? "bytes" : "none");
 						response.setResponse(StringUtil.rtfToHtml(requestedFile));
 						response.sendToClient(s, protocol.equalsIgnoreCase("GET"));
 						//s.close();
@@ -1719,7 +1748,7 @@ public final class JavaWebServer {
 						response.setHeader("Cache-Control", (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
 						response.setHeader("Date", StringUtil.getCurrentCacheTime());
 						response.setHeader("Last-Modified", StringUtil.getCacheTime(requestedFile.lastModified()));
-						response.setHeader("Accept-Ranges", "none");
+						response.setHeader("Accept-Ranges", allowByteRangeRequests ? "bytes" : "none");
 						response.setResponse(StringUtil.readEpubBook(requestedFile));
 						response.sendToClient(s, protocol.equalsIgnoreCase("GET"));
 						//s.close();
@@ -1734,7 +1763,7 @@ public final class JavaWebServer {
 					response.setHeader("Cache-Control", (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : "public, max-age=" + domainDirectory.getCacheMaxAge()));
 					response.setHeader("Date", StringUtil.getCurrentCacheTime());
 					response.setHeader("Last-Modified", StringUtil.getCacheTime(requestedFile.lastModified()));
-					response.setHeader("Accept-Ranges", (allowByteRangeRequests ? "bytes" : "none"));//XXX "Accept-Ranges: none");
+					response.setHeader("Accept-Ranges", allowByteRangeRequests ? "bytes" : "none");
 					long random = (new Random()).nextLong();
 					response.setResponse("<!DOCTYPE html>\r\n" + //
 					"<html>\r\n\t<head>\r\n" + //
@@ -1797,7 +1826,7 @@ public final class JavaWebServer {
 					return;
 				}
 				response.setHTTPVersion(versionToUse);
-				response.setStatusCode(HTTP_200);
+				response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
 				String mimeType = info.mimeType;
 				if(ext.equalsIgnoreCase("m4a") && request.userAgent.toLowerCase().contains("vlc")) {
 					mimeType = "audio/x-m4a";//XXX Fix for VLC when streaming m4a files?
@@ -1832,9 +1861,10 @@ public final class JavaWebServer {
 			return;
 		}
 		PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
+		final String HTTP_Code = connectionSeemsMalicious ? "429 Too Many Requests" : "200 OK";
 		
-		println("\t*** " + versionToUse + " 200 OK - Directory listing");//XXX Directory Listing
-		out.println(versionToUse + " 200 OK");
+		println("\t*** " + versionToUse + " " + HTTP_Code + " - Directory listing");//XXX Directory Listing
+		out.println(versionToUse + " " + HTTP_Code);
 		out.println("Vary: Accept-Encoding");
 		out.println("Server: " + SERVER_NAME_HEADER);
 		out.println("Date: " + StringUtil.getCurrentCacheTime());
@@ -4904,6 +4934,11 @@ public final class JavaWebServer {
 			println("Kicked client with ip: " + getClientAddress + "\r\n\tReason: " + (naughty != null ? "\"" + naughty.banReason + "\"" : "Unknown"));
 			return new RequestResult(null, false, null);
 		}
+		final ClientConnectTime cct = getClientConnectTimeFor(getClientAddress);
+		final boolean connectionSeemsMalicious = cct.seemsMalicious();
+		if(connectionSeemsMalicious) {
+			incrementWarnCountFor(getClientAddress);
+		}
 		IOException ioException = null;
 		try {
 			println((reuse ? "Reused" : "New") + " Connection: " + getClientAddress);
@@ -5154,7 +5189,7 @@ public final class JavaWebServer {
 								}
 							}
 						}
-						response.setStatusCode(HTTP_200);
+						response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
 						response.setHeader("Date", StringUtil.getCurrentCacheTime());
 						response.setHeader("Allow", "GET,HEAD," + (request.requestedFilePath.equals("*") ? "POST," : "") + "CONNECT,OPTIONS");//"GET,HEAD,POST,OPTIONS");
 						response.setHeader("Content-Type", "text/plain; charset=UTF-8");
@@ -5275,7 +5310,7 @@ public final class JavaWebServer {
 								}
 							}
 						}
-						clientInfo = new ClientInfo(s, info, request.protocolRequest, request.host, request.connectionSetting, request.cacheControl, request.accept, request.userAgent, request.dnt, request.referrerLink, request.acceptEncoding, request.acceptLanguage, request.from, request.cookie, request.range, request.authorization, request.ifModifiedSince, request.ifNoneMatch);
+						clientInfo = new ClientInfo(s, info, request.protocolRequest, request.host, request.connectionSetting, request.cacheControl, request.accept, request.userAgent, request.dnt, request.referrerLink, request.acceptEncoding, request.acceptLanguage, request.from, request.cookie, request.range, request.authorization, request.ifModifiedSince, request.ifNoneMatch, request.ifRange);
 						IOException exception = null;
 						try {
 							serveFileToClient(s, reuse, https, s.getOutputStream(), response, clientInfo, domainDirectory, request.protocol, request.requestedFilePath, request.version, request.requestArguments, request.requestArgumentsStr, request);
@@ -5343,7 +5378,7 @@ public final class JavaWebServer {
 						return new RequestResult(request, reuse, null);
 					}
 					if(request.contentType.equalsIgnoreCase("application/x-www-form-urlencoded")) {
-						response.setStatusCode(HTTP_200);
+						response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
 						PhpResult phpResponse = PhpResult.execPHP(requestedFile.getAbsolutePath(), request.formURLEncodedData.postRequestStr.replace("?", "").replace("&", " "), true, false);
 						for(String header : phpResponse.headers.split("\r\n")) {
 							String[] split = header.split("\\: ");
