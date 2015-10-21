@@ -246,7 +246,8 @@ public class HTTPServerResponse {
 						IOException exception = null;
 						try {
 							if(this.isRangeResponse()) {
-								JavaWebServer.copyInputStreamToOutputStream(this.responseFile, fileIn, outStream, this.startBytes, this.endBytes, this.clientInfo);
+								RangeRequest range = new RangeRequest(this.startBytes, this.endBytes, Long.valueOf(this.responseFile.contentLength).longValue());
+								range.sendRangeTo(fileIn, outStream, this.responseFile, this.clientInfo);//JavaWebServer.copyInputStreamToOutputStream(this.responseFile, fileIn, outStream, this.startBytes, this.endBytes, this.clientInfo);
 							} else {
 								JavaWebServer.copyInputStreamToOutputStream(this.responseFile, fileIn, outStream, (this.domainDirectory == null ? 1024 : this.domainDirectory.getNetworkMTU()), this.clientInfo);
 							}

@@ -1621,21 +1621,22 @@ public final class JavaWebServer {
 					}
 				} catch(ParseException | NumberFormatException e) {
 					//e.printStackTrace();
-					modifiedSince = true;
 				}
 			} else {
 				modifiedSince = true;
 			}
-			boolean ifRange = true;
+			boolean ifRange = false;
 			if(!clientInfo.ifRange.isEmpty()) {
 				try {
 					long clientModifiedReq = StringUtil.getCacheValidatorTimeFormat().parse(clientInfo.ifRange).getTime();
-					if(lastModified <= clientModifiedReq) {
-						ifRange = false;
+					if(lastModified > clientModifiedReq) {
+						ifRange = true;
 					}
 				} catch(ParseException | NumberFormatException e) {
 					//e.printStackTrace();
 				}
+			} else {
+				ifRange = true;
 			}
 			String length = info.contentLength;
 			final long contentLength = StringUtil.getLongFromStr(length).longValue();
@@ -1646,7 +1647,7 @@ public final class JavaWebServer {
 						RangeRequest range = new RangeRequest(clientInfo.range, contentLength);
 						if(range.isValid()) {
 							printlnDebug("TEST 6: values are in range of file size.");
-							println("\t*** 206 Partial Content(Byte range) Requested: " + range.startBytes + "-" + range.endBytes + " /" + contentLength);
+							println("\t*** 206 Partial Content(Byte range) Requested: " + range.startBytes + "-" + range.endBytes + " /" + contentLength + (request.ifRange.isEmpty() ? "(No \"If-Range\" header sent)" : "(\"If-Range\" requirement met)"));
 							PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
 							out.println("HTTP/1.1 206 Partial Content");
 							out.println("Vary: Accept-Encoding");
@@ -1673,7 +1674,7 @@ public final class JavaWebServer {
 								printlnDebug("TEST 8: file input stream established.");
 								IOException exception = null;
 								try {
-									long sentBytes = copyInputStreamToOutputStream(info, fileIn, outStream, range.startBytes, range.endBytes, clientInfo);
+									long sentBytes = range.sendRangeTo(fileIn, outStream, info, clientInfo);//copyInputStreamToOutputStream(info, fileIn, outStream, range.startBytes, range.endBytes, clientInfo);
 									printlnDebug("DEBUG: Sent Bytes matches length: " + ((sentBytes == range.rangeLength) ? "true" : "false; Sent bytes: " + sentBytes));
 									println("\t\t\tSent file \r\n\t\t\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t\t to client \"" + clientAddress + "\" successfully.");
 								} catch(IOException e) {
@@ -2584,7 +2585,7 @@ public final class JavaWebServer {
 								extraViewStr = "&nbsp;&nbsp;&nbsp;<a href=\"" + curFileLink + "?displayFile=1\"" + linkTarget + "><b>*** Readable View ***</b></a>";
 							}
 						}
-						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + curInfo.fileName + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>&nbsp;</td><td>" + curInfo.contentLength + "</td><td>&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;</td><td>" + mimeType + "</td></tr>\r\n";
+						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + StringUtil.encodeURLStr(curInfo.fileName) + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>&nbsp;</td><td>" + curInfo.contentLength + "</td><td>&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;</td><td>" + mimeType + "</td></tr>\r\n";
 					}
 				} catch(FileNotFoundException ignored) {
 				} catch(Throwable e) {
@@ -2601,7 +2602,7 @@ public final class JavaWebServer {
 			String administrateForm = "";
 			final String administrateParamStr = (containsAnyArgs ? "&" : "?") + "administrateFile=1";
 			if(domainDirectory.getEnableFileUpload()) {
-				administrateForm += "\t\t<button title=\"Administrate this folder\" onclick=\"window.location.href=window.location.href.split('#')[0] + '" + administrateParamStr + "'\">Administrate</button>\r\n";
+				administrateForm += "\t\t<button title=\"Administrate this folder\" onclick=\"window.location.href=window.location.href.split('#')[0].split('?')[0] + '" + administrateParamStr + "'\">Administrate</button>\r\n";
 			}
 			/*if(domainDirectory.getEnableFileUpload()) {
 				uploadForm += "\t\t<button title=\"Upload files to this directory\" type=\"button\" onclick=\"document.getElementById('spoiler').style.display=(document.getElementById('spoiler').style.display=='none' ? '' : 'none')\">Upload Files</button>\r\n";
@@ -2615,7 +2616,7 @@ public final class JavaWebServer {
 			}*/
 			
 			final String adminLink = enableAdminInterface ? (request.requestedFilePath.startsWith("https://") ? "https://" : "http://") + request.hostNoPort + ":" + admin_listen_port : null;
-			final String adminAnchor = (adminLink != null ? "<b><a href=\"" + adminLink + "\" target=\"_blank\" rel=\"nofollow\">Server Administration</a></b>" : "");
+			final String adminAnchor = (adminLink != null ? "<b><a href=\"" + adminLink + "\" target=\"_blank\" rel=\"nofollow\" title=\"Change server-wide settings\">Server Administration</a></b>" : "");
 			
 			responseStr = "<!DOCTYPE html>\r\n"//
 					+ "<html>\r\n\t<head>\r\n"//
@@ -2751,13 +2752,17 @@ public final class JavaWebServer {
 				} else {
 					parentFileLink = null;
 				}
+				
+				final String adminLink = enableAdminInterface ? (request.requestedFilePath.startsWith("https://") ? "https://" : "http://") + request.hostNoPort + ":" + admin_listen_port : null;
+				final String adminAnchor = (adminLink != null ? "<b><a href=\"" + adminLink + "\" target=\"_blank\" rel=\"nofollow\" title=\"Change server-wide settings\">Server Administration</a></b>" : "");
+				
 				final boolean containsAnyArgs = request.requestArguments.size() > 0;
 				final String fileLink = StringUtil.encodeHTML(httpProtocol + clientInfo.host + request.requestedFilePath);
 				String fileOrFolder = requestedFile.isFile() ? "file" : "folder";
 				if(deleteFile) {
 					/*String deleteParamStr = (containsAnyArgs ? "&" : "?") + "administrateFile=1&deleteConfirm=";
-					final String confirmButton = "<button title=\"Confirm deletion\" onclick=\"window.location.href=window.location.href.split('#')[0] + '" + deleteParamStr + "1'\">Yes</button>";
-					final String cancelButton = "<button title=\"Cancel deletion\" onclick=\"window.location.href=window.location.href.split('#')[0] + '" + deleteParamStr + "0'\">No</button>";
+					final String confirmButton = "<button title=\"Confirm deletion\" onclick=\"window.location.href=window.location.href.split('#')[0].split('?')[0] + '" + deleteParamStr + "1'\">Yes</button>";
+					final String cancelButton = "<button title=\"Cancel deletion\" onclick=\"window.location.href=window.location.href.split('#')[0].split('?')[0] + '" + deleteParamStr + "0'\">No</button>";
 					*/
 					
 					FileDeleteStrategy.FORCE.deleteQuietly(requestedFile);
@@ -2806,7 +2811,7 @@ public final class JavaWebServer {
 					} else {
 						if(renameTo != null) {
 							renameTo = StringUtil.decodeHTML(renameTo.replace("+", " "));
-							final String encodedRenameTo = StringUtil.encodeHTML(renameTo);
+							final String encodedRenameTo = StringUtil.encodeURLStr(renameTo);
 							if(renameTo.equals(reqFileName)) {
 								send200OK = false;
 								out.println(versionToUse + " 303 See Other");
@@ -2991,9 +2996,9 @@ public final class JavaWebServer {
 								String name = "<string" + (isDefaultFileForDomain ? " title=\"Default landing page for domain &quot;" + domainDirectory.getDomain() + "&quot;\"" : "") + ">" + fileName + (isHidden ? "&nbsp;<b><i>{Hidden " + (file.isFile() ? "File" : "Folder") + "}</i></b>" : "") + "</string>";
 								name = isDefaultFileForDomain ? "<b>" + name + "</b>" : name;
 								if(file.isDirectory()) {
-									name = "<a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeHTML(fileName) + "\">" + name + "</a>";
+									name = "<a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeURLStr(fileName) + "\">" + name + "</a>";
 								} else {
-									name = "<i><a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeHTML(fileName) + "\">" + name + "</a></i>";
+									name = "<i><a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeURLStr(fileName) + "\">" + name + "</a></i>";
 								}
 								fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;&nbsp;&nbsp;</td>" : "") + "<td>" + name + "</td><td>" + (file.isDirectory() ? "&nbsp;&nbsp;&nbsp;" : "<a href=\"" + curFileLink + "\" download=\"" + fileName + "\" target=\"_blank\" rel=\"nofollow\">Download</a>") + "</td><td>" + curInfo.contentLength + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + mimeType + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + managementStr + "</td></tr>\r\n";
 							}
@@ -3016,7 +3021,7 @@ public final class JavaWebServer {
 								+ "\t\t<h2>Upload files to \"" + reqFileName + "\":</h2><hr>\r\n" + uploadForm + "<hr>\r\n"//
 								+ "\t\t<h2>Directory Tree:</h2>\r\n"//
 								+ fileTable + "<hr>\r\n"//
-								+ "\t\t<b><a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a></b>\r\n"//
+								+ "\t\t<b><a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a></b>" + (adminAnchor.isEmpty() ? "" : "&nbsp;" + adminAnchor) + "\r\n"//
 								+ "\t</body>\r\n</html>";
 					} else if(requestedFile.isFile()) {
 						responseStr = "<!DOCTYPE html>\r\n"//
@@ -3031,8 +3036,8 @@ public final class JavaWebServer {
 								+ "\t<body bgcolor=\"#DDDDDD\">\r\n"//
 								+ "\t\t<h1>File Administration -<br>\r\n"//
 								+ "\t\t" + pageHeader + "</h1><hr>\r\n"//
-								+ "\t\t<string>File administration pages are not yet implemented. Try again in a later release! :)</string><br>\r\n"//
-								+ (parentFileLink != null ? "\t\t<b><a href=\"" + parentFileLink + "?administrateFile=1\" rel=\"nofollow\">(../Up)</a>&nbsp;<a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a></b><br>" : "")//
+								+ "\t\t<string>File administration pages are not yet implemented. Try again in a later release! :)</string>\r\n"//
+								+ "\t\t<hr><b>" + (parentFileLink != null ? "<a href=\"" + parentFileLink + "?administrateFile=1\" rel=\"nofollow\">(../Up)</a>&nbsp;" : "") + "<a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a>" + (adminAnchor.isEmpty() ? "" : "&nbsp;" + adminAnchor) + "</b><br>"//
 								+ (!request.referrerLink.isEmpty() ? "\t\t<a href=\"" + request.referrerLink + "\" rel=\"nofollow\">Back to previous page</a>\r\n" : "")//
 								+ "\t</body>\r\n</html>";
 						//TODO file management operation pages go here(rename gets a page, delete deletes the file and returns a "okay it delted toopid" page, move does nothing yet, etc.
@@ -5597,86 +5602,6 @@ public final class JavaWebServer {
 			}
 		}
 		info.isBeingWrittenTo = false;
-		return count;
-	}
-	
-	/** @param info The FileInfo
-	 * @param input The input stream
-	 * @param output The output stream
-	 * @param startBytes The starting byte to get(usually zero)
-	 * @param endBytes The end byte to get(must be greater than startBytes)
-	 * @param clientInfo The ClientInfo to use
-	 * @return The amount of data copied
-	 * @throws IOException Thrown if an I/O exception occurs */
-	public static final long copyInputStreamToOutputStream(FileInfo info, InputStream input, OutputStream output, long startBytes, long endBytes, ClientInfo clientInfo) throws IOException {
-		byte[] buffer = new byte[20480];//1024
-		long count = 0;
-		int read;
-		long skipped = startBytes <= 0 ? 0 : input.skip(startBytes);
-		final long length = (endBytes - startBytes) + 1;
-		printlnDebug("Start bytes: " + startBytes + "; End bytes: " + endBytes + "; Skipped bytes: " + skipped + "; Skipped equals startBytes: " + (skipped == startBytes) + "; Length: " + length + "; Total file size: " + info.contentLength);
-		info.contentLength = Long.toString(length);
-		long toRead = length;
-		info.lastWriteTime = System.currentTimeMillis();
-		while((read = input.read(buffer)) != -1) {
-			count += read;
-			if(info.isCancelled) {
-				return count;
-			}
-			if(info.isPaused) {
-				while(info.isPaused) {
-					try {
-						Thread.sleep(1);
-					} catch(Throwable ignored) {
-					}
-				}
-				if(info.isCancelled) {
-					return count;
-				}
-			}
-			info.isBeingWrittenTo = true;
-			long bytesLeft = length - count;
-			printlnDebug("read: " + read + "; toRead: " + toRead + "; length: " + length + "; count: " + count + "; bytesLeft: " + bytesLeft);
-			toRead -= read;
-			if(bytesLeft >= buffer.length) {
-				output.write(buffer, 0, read);
-				output.flush();
-				if(clientInfo != null) {
-					clientInfo.setLastWriteTime(System.currentTimeMillis());
-				}
-				info.bytesTransfered = count;
-				info.isBeingWrittenTo = false;
-			} else {
-				output.write(buffer, 0, read);
-				output.flush();
-				if(clientInfo != null) {
-					clientInfo.setLastWriteTime(System.currentTimeMillis());
-				}
-				bytesLeft = length - count;
-				read = input.read(buffer, 0, (int) bytesLeft);
-				count += read;
-				printlnDebug("[Last one!]read: " + read + "; toRead: " + toRead + "; length: " + length + "; count: " + count + "; bytesLeft: " + bytesLeft);
-				output.write(buffer, 0, read);
-				output.flush();
-				if(clientInfo != null) {
-					clientInfo.setLastWriteTime(System.currentTimeMillis());
-				}
-				info.bytesTransfered = count;
-				info.isBeingWrittenTo = false;
-				break;
-			}
-			long currentTime = System.currentTimeMillis();
-			long elapsedTime = currentTime - info.lastWriteTime;
-			info.currentWriteAmount += read;
-			if(elapsedTime >= info.updateTime) {
-				info.lastWriteTime = currentTime;
-				info.lastWriteAmount = info.currentWriteAmount;
-				info.currentWriteAmount = 0L;
-			}
-			if(info.isCancelled) {
-				return count;
-			}
-		}
 		return count;
 	}
 	
