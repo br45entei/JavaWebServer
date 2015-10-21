@@ -1,8 +1,8 @@
 This is an experimental web server written using Java.
 I was inspired to create this after having used a server
 called "KeyFocus Web Server". I needed more functionality,
-and didn't want to pay for something that I felt I could create.
-Started coding this around June 2014.
+and didn't want to pay for something that I felt I could create,
+so I started coding this around June 2014.
 You may edit the source code and compile it, but please
 give credit to the original author(br45entei@gmail.com).
 
