@@ -2585,7 +2585,7 @@ public final class JavaWebServer {
 								extraViewStr = "&nbsp;&nbsp;&nbsp;<a href=\"" + curFileLink + "?displayFile=1\"" + linkTarget + "><b>*** Readable View ***</b></a>";
 							}
 						}
-						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + StringUtil.encodeURLStr(curInfo.fileName) + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>&nbsp;</td><td>" + curInfo.contentLength + "</td><td>&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;</td><td>" + mimeType + "</td></tr>\r\n";
+						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + StringUtil.encodeURLStr(curInfo.fileName, false) + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>&nbsp;</td><td>" + curInfo.contentLength + "</td><td>&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;</td><td>" + mimeType + "</td></tr>\r\n";
 					}
 				} catch(FileNotFoundException ignored) {
 				} catch(Throwable e) {
@@ -2678,6 +2678,7 @@ public final class JavaWebServer {
 			String clientUser = creds.length == 2 ? creds[0] : "";
 			String clientPass = creds.length == 2 ? creds[1] : "";
 			if(!areCredentialsValidForAdministration(clientUser, clientPass)) {
+				send200OK = false;
 				out.println(versionToUse + " 401 Authorization Required");
 				out.println("Vary: Accept-Encoding");
 				out.println("Server: " + SERVER_NAME_HEADER);
@@ -2811,7 +2812,7 @@ public final class JavaWebServer {
 					} else {
 						if(renameTo != null) {
 							renameTo = StringUtil.decodeHTML(renameTo.replace("+", " "));
-							final String encodedRenameTo = StringUtil.encodeURLStr(renameTo);
+							final String encodedRenameTo = StringUtil.encodeURLStr(renameTo, true);
 							if(renameTo.equals(reqFileName)) {
 								send200OK = false;
 								out.println(versionToUse + " 303 See Other");
@@ -2996,9 +2997,9 @@ public final class JavaWebServer {
 								String name = "<string" + (isDefaultFileForDomain ? " title=\"Default landing page for domain &quot;" + domainDirectory.getDomain() + "&quot;\"" : "") + ">" + fileName + (isHidden ? "&nbsp;<b><i>{Hidden " + (file.isFile() ? "File" : "Folder") + "}</i></b>" : "") + "</string>";
 								name = isDefaultFileForDomain ? "<b>" + name + "</b>" : name;
 								if(file.isDirectory()) {
-									name = "<a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeURLStr(fileName) + "\">" + name + "</a>";
+									name = "<a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeURLStr(fileName, false).replace("%20", " ") + "\">" + name + "</a>";
 								} else {
-									name = "<i><a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeURLStr(fileName) + "\">" + name + "</a></i>";
+									name = "<i><a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeURLStr(fileName, false).replace("%20", " ") + "\">" + name + "</a></i>";
 								}
 								fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;&nbsp;&nbsp;</td>" : "") + "<td>" + name + "</td><td>" + (file.isDirectory() ? "&nbsp;&nbsp;&nbsp;" : "<a href=\"" + curFileLink + "\" download=\"" + fileName + "\" target=\"_blank\" rel=\"nofollow\">Download</a>") + "</td><td>" + curInfo.contentLength + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + mimeType + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + managementStr + "</td></tr>\r\n";
 							}
@@ -4592,7 +4593,7 @@ public final class JavaWebServer {
 		out.println("");
 		if(protocol.equalsIgnoreCase("GET")) {
 			try(InputStream fileIn = file.toURI().toURL().openConnection().getInputStream()) {
-				copyInputStreamToOutputStream(info, fileIn, outStream, mtu, clientInfo);//1024, clientInfo);
+				info.copyInputStreamToOutputStream(fileIn, outStream, mtu, clientInfo);//1024, clientInfo);
 				println("\t\t\tSent admin file \r\n\t\t\t\"" + FilenameUtils.normalize(file.getAbsolutePath()) + "\"\r\n\t\t\t to client \"" + clientAddress + "\" successfully.");
 			} catch(Throwable e) {
 				println("\t /!\\\tFailed to send admin file \r\n\t/___\\\t\"" + FilenameUtils.normalize(file.getAbsolutePath()) + "\"\r\n\t\t to client \"" + clientAddress + "\": " + e.getMessage());
@@ -5548,61 +5549,6 @@ public final class JavaWebServer {
 		}
 		connectedClients.remove(clientInfo);
 		return new RequestResult(null, false, ioException);
-	}
-	
-	/** @param info The FileInfo
-	 * @param input The input stream
-	 * @param output The output stream
-	 * @param mtu The network mtu to be used
-	 * @param clientInfo The ClientInfo to use
-	 * @return The amount of data copied
-	 * @throws IOException Thrown if an I/O exception occurs */
-	public static final long copyInputStreamToOutputStream(FileInfo info, InputStream input, OutputStream output, int mtu, ClientInfo clientInfo) throws IOException {
-		byte[] buffer = new byte[mtu];//4096 XXX This is the 'MTU' network value; maybe make this configurable per-domain later?
-		long count = 0;
-		int n = 0;
-		if(info.isCancelled) {
-			return count;
-		}
-		info.lastWriteTime = System.currentTimeMillis();
-		while((n = input.read(buffer)) != -1) {
-			if(info.isCancelled) {
-				return count;
-			}
-			if(info.isPaused) {
-				while(info.isPaused) {
-					try {
-						Thread.sleep(1);
-					} catch(Throwable ignored) {
-					}
-				}
-				if(info.isCancelled) {
-					return count;
-				}
-			}
-			info.isBeingWrittenTo = true;
-			output.write(buffer, 0, n);
-			if(clientInfo != null) {
-				clientInfo.setLastWriteTime(System.currentTimeMillis());
-			}
-			output.flush();
-			count += n;
-			info.bytesTransfered = count;
-			info.isBeingWrittenTo = false;
-			long currentTime = System.currentTimeMillis();
-			long elapsedTime = currentTime - info.lastWriteTime;
-			info.currentWriteAmount += n;
-			if(elapsedTime >= info.updateTime) {
-				info.lastWriteTime = currentTime;
-				info.lastWriteAmount = info.currentWriteAmount;
-				info.currentWriteAmount = 0L;
-			}
-			if(info.isCancelled) {
-				return count;
-			}
-		}
-		info.isBeingWrittenTo = false;
-		return count;
 	}
 	
 }

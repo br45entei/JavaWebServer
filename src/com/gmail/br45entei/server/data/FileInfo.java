@@ -1,12 +1,14 @@
 package com.gmail.br45entei.server.data;
 
 import com.gmail.br45entei.JavaWebServer;
+import com.gmail.br45entei.server.ClientInfo;
 import com.gmail.br45entei.server.MimeTypes;
 import com.gmail.br45entei.util.StringUtil;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URL;
 import java.net.URLConnection;
 
@@ -109,6 +111,60 @@ public final class FileInfo {
 		final double max = new Double(this.contentLength + ".00D").doubleValue();
 		final double result = (min / max) * 100.00D;
 		return "Requested file: \"" + this.fileName + "\"; Percent complete: " + new Long(Math.round(result)).longValue();
+	}
+	
+	/** @param input The input stream
+	 * @param output The output stream
+	 * @param mtu The network mtu to be used
+	 * @param clientInfo The ClientInfo to use
+	 * @return The amount of data copied
+	 * @throws IOException Thrown if an I/O exception occurs */
+	public final long copyInputStreamToOutputStream(InputStream input, OutputStream output, int mtu, ClientInfo clientInfo) throws IOException {
+		byte[] buffer = new byte[mtu <= 0 ? 4096 : mtu];
+		long count = 0;
+		int n = 0;
+		if(this.isCancelled) {
+			return count;
+		}
+		this.lastWriteTime = System.currentTimeMillis();
+		while((n = input.read(buffer)) != -1) {
+			if(this.isCancelled) {
+				return count;
+			}
+			if(this.isPaused) {
+				while(this.isPaused) {
+					try {
+						Thread.sleep(1);
+					} catch(Throwable ignored) {
+					}
+				}
+				if(this.isCancelled) {
+					return count;
+				}
+			}
+			this.isBeingWrittenTo = true;
+			output.write(buffer, 0, n);
+			if(clientInfo != null) {
+				clientInfo.setLastWriteTime(System.currentTimeMillis());
+			}
+			output.flush();
+			count += n;
+			this.bytesTransfered = count;
+			this.isBeingWrittenTo = false;
+			long currentTime = System.currentTimeMillis();
+			long elapsedTime = currentTime - this.lastWriteTime;
+			this.currentWriteAmount += n;
+			if(elapsedTime >= this.updateTime) {
+				this.lastWriteTime = currentTime;
+				this.lastWriteAmount = this.currentWriteAmount;
+				this.currentWriteAmount = 0L;
+			}
+			if(this.isCancelled) {
+				return count;
+			}
+		}
+		this.isBeingWrittenTo = false;
+		return count;
 	}
 	
 }

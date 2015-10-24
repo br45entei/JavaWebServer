@@ -631,11 +631,13 @@ public strictfp class StringUtil {
 		return(str.equals("\n") || str.equals("\r") || str.equals("\t") || str.equals("\0") || str.equals("\f") || str.equals("`") || str.equals("'") || str.equals("?") || str.equals("*") || str.equals("<") || str.equals(">") || str.equals("|") || str.equals("\""));
 	}
 	
-	public static final String encodeURLStr(String str) {
+	public static final String encodeURLStr(String str, boolean replacePercentSymbols) {
 		for(Entry<String, String> entry : urlChars.entrySet()) {
 			String charr = entry.getValue();
 			if(!isCharIllegal(charr)) {
-				str = str.replace(charr, entry.getKey());
+				if(!charr.equals("%") || replacePercentSymbols) {
+					str = str.replace(charr, entry.getKey());
+				}
 			}
 		}
 		return str;
