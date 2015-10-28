@@ -108,7 +108,8 @@ import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_502;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_504;
 
 /** The main Server class */
-public final class JavaWebServer {
+public final class JavaWebServer {//TODO Implement per-folder default files, like with domains(configurable on the folder administration page)
+	//TODO Go through and read all of the old TODO's and actually do them you lazy bum
 	
 	protected final Thread									sslThread;
 	protected final Thread									adminThread;
@@ -2585,7 +2586,7 @@ public final class JavaWebServer {
 								extraViewStr = "&nbsp;&nbsp;&nbsp;<a href=\"" + curFileLink + "?displayFile=1\"" + linkTarget + "><b>*** Readable View ***</b></a>";
 							}
 						}
-						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + StringUtil.encodeURLStr(curInfo.fileName, false) + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>&nbsp;</td><td>" + curInfo.contentLength + "</td><td>&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;</td><td>" + mimeType + "</td></tr>\r\n";
+						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + curInfo.fileName + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>&nbsp;</td><td>" + curInfo.contentLength + "</td><td>&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;</td><td>" + mimeType + "</td></tr>\r\n";
 					}
 				} catch(FileNotFoundException ignored) {
 				} catch(Throwable e) {
@@ -2850,7 +2851,7 @@ public final class JavaWebServer {
 								if(keepAlive) {
 									out.println("Keep-Alive: timeout=30");
 								}
-								out.println("Location: " + parentFileLink + "?administrateFile=1#" + encodedRenameTo);
+								out.println("Location: " + parentFileLink + "?administrateFile=1#" + renameTo);
 								out.println("");
 								out.flush();
 								connectedClients.remove(clientInfo);
@@ -2997,9 +2998,9 @@ public final class JavaWebServer {
 								String name = "<string" + (isDefaultFileForDomain ? " title=\"Default landing page for domain &quot;" + domainDirectory.getDomain() + "&quot;\"" : "") + ">" + fileName + (isHidden ? "&nbsp;<b><i>{Hidden " + (file.isFile() ? "File" : "Folder") + "}</i></b>" : "") + "</string>";
 								name = isDefaultFileForDomain ? "<b>" + name + "</b>" : name;
 								if(file.isDirectory()) {
-									name = "<a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeURLStr(fileName, false).replace("%20", " ") + "\">" + name + "</a>";
+									name = "<a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + fileName + "\">" + name + "</a>";
 								} else {
-									name = "<i><a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + StringUtil.encodeURLStr(fileName, false).replace("%20", " ") + "\">" + name + "</a></i>";
+									name = "<i><a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + fileName + "\">" + name + "</a></i>";
 								}
 								fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;&nbsp;&nbsp;</td>" : "") + "<td>" + name + "</td><td>" + (file.isDirectory() ? "&nbsp;&nbsp;&nbsp;" : "<a href=\"" + curFileLink + "\" download=\"" + fileName + "\" target=\"_blank\" rel=\"nofollow\">Download</a>") + "</td><td>" + curInfo.contentLength + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + mimeType + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + managementStr + "</td></tr>\r\n";
 							}
@@ -3284,6 +3285,8 @@ public final class JavaWebServer {
 						
 						final String domainError = request.requestArguments.get("domainError");
 						final String createDomainError = request.requestArguments.get("createDomainError");
+						String getHomeDirError = request.requestArguments.get("homeDirectoryError");
+						final String homeDirectoryError = getHomeDirError != null ? StringUtil.decodeHTML(getHomeDirError) : null;
 						final String domainAlreadyExistsError = request.requestArguments.get("domainAlreadyExistsError");
 						
 						final String restrictedFileError = request.requestArguments.get("restrictedFileError");
@@ -3660,6 +3663,10 @@ public final class JavaWebServer {
 									response.appendResponse("\t\t\t<table border=\"2\" cellpadding=\"3\" cellspacing=\"1\">\r\n");
 									response.appendResponse("\t\t\t\t<tbody>\r\n");
 									//
+									final boolean noHomeDir = homeDirectoryError != null;
+									final String homeDirPrefix = noHomeDir ? "<p class=\"red_border\">" : "";
+									final String homeDirSuffix = noHomeDir ? "</p>" : "";
+									
 									DomainDirectory domain = DomainDirectory.getTemporaryDomain();
 									String getDomainName = request.requestArguments.get("domainName");
 									final String domainName = getDomainName == null ? AddressUtil.getALocalIP()/*InetAddress.getLocalHost().getHostAddress()*/: getDomainName;
@@ -3678,7 +3685,7 @@ public final class JavaWebServer {
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DefaultStylesheet:</b></td><td><input type=\"text\" name=\"" + domain.defaultStylesheet.getName() + "\" value=\"" + domain.defaultStylesheet.getValue() + "\" size=\"42\"></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DisplayName:</b></td><td><input type=\"text\" name=\"" + domain.displayName.getName() + "\" value=\"" + domainName + "\" size=\"42\" title=\"The display name for this domain(used when viewing domains in the administration interface)\"></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DisplayLogEntries:</b></td><td><select name=\"" + domain.displayLogEntries.getName() + "\">" + (domain.displayLogEntries.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
-									response.appendResponse("\t\t\t\t\t<tr><td><b>HomeDirectory:</b></td><td><input type=\"text\" name=\"" + domain.folder.getName() + "\" value=\"" + domain.folder.getValue().getAbsolutePath() + "\" size=\"42\"></td></tr>\r\n");
+									response.appendResponse("\t\t\t\t\t<tr><td><b>HomeDirectory:</b></td><td>" + homeDirPrefix + "<input type=\"text\" name=\"" + domain.folder.getName() + "\" value=\"" + (noHomeDir ? homeDirectoryError : domain.folder.getValue().getAbsolutePath()) + "\" size=\"42\">" + homeDirSuffix + "</td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableGZipCompression:</b></td><td><select name=\"" + domain.enableGZipCompression.getName() + "\">" + (domain.enableGZipCompression.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableFileUploads:</b></td><td><select name=\"" + domain.enableFileUpload.getName() + "\" title=\"Whether or not authenticated users may upload files to the directory they are currently browsing\">" + (domain.enableFileUpload.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableAlternateDirectoryListingViews:</b></td><td><select name=\"" + domain.enableAlternateDirectoryListingViews.getName() + "\">" + (domain.enableAlternateDirectoryListingViews.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
@@ -4390,6 +4397,13 @@ public final class JavaWebServer {
 								UUID uuid = UUID.fromString(createDomainUUID);
 								DomainDirectory domain = DomainDirectory.createNewDomainDirectory(uuid);
 								String domainName = values.get(domain.domain.getName());
+								String homeDirectoryPath = values.get("HomeDirectory");
+								File homeDirectory = new File(homeDirectoryPath);
+								if(!homeDirectory.exists()) {
+									response.setStatusMessage("Admin Page(POST_ERROR)").setStatusCode(HTTP_303).setHeader("Location", "http://" + request.host + request.requestedFilePath + "?page=createDomain&domainName=" + values.get("Domain") + "&homeDirectoryError=" + homeDirectoryPath).setResponse((String) null).sendToClient(s, false);
+									domain.delete();
+									return;
+								}
 								if(domainName != null && !domainName.isEmpty()) {
 									DomainDirectory check = DomainDirectory.getDomainDirectoryFromDomainName(domainName);
 									if(check == null) {
@@ -5216,9 +5230,11 @@ public final class JavaWebServer {
 					path = (path.trim().isEmpty() ? "/" : path);
 					path = (path.startsWith("/") ? "" : "/") + path;
 					final String pageHeader = "<hr><b>" + (path.startsWith("/") ? path : "/" + path) + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress + "</b>";
+					String administrateFileCheck = request.requestArguments.get("administrateFile");
+					final boolean administrateFile = administrateFileCheck != null ? (administrateFileCheck.equals("1") || administrateFileCheck.equalsIgnoreCase("true")) : false;
 					
 					if(requestedFile != null && requestedFile.exists() && (testDomain != null || domainIsLocalHost)) {
-						if(domainDirectory.areDirectoriesForbidden() && requestedFile.isDirectory()) {
+						if(domainDirectory.areDirectoriesForbidden() && requestedFile.isDirectory() && !administrateFile && !requestedFile.equals(domainDirectory.getDirectory())) {
 							response.setStatusCode(HTTP_403);
 							response.setHeader("Content-Type", "text/html; charset=UTF-8");
 							response.setHeader("Server", SERVER_NAME_HEADER);
@@ -5247,8 +5263,6 @@ public final class JavaWebServer {
 						String favicon = domainDirectory.getDefaultPageIcon();
 						layout = layout.startsWith("/") ? layout : "/" + layout;
 						favicon = favicon.startsWith("/") ? favicon : "/" + favicon;
-						String administrateFileCheck = request.requestArguments.get("administrateFile");
-						final boolean administrateFile = administrateFileCheck != null ? (administrateFileCheck.equals("1") || administrateFileCheck.equalsIgnoreCase("true")) : false;
 						isExempt = administrateFile || request.requestedFilePath.equalsIgnoreCase(layout) || request.requestedFilePath.equalsIgnoreCase(favicon);
 						
 						if(RestrictedFile.isFileRestricted(requestedFile, s.getInetAddress().getHostAddress()) && !isExempt) {
