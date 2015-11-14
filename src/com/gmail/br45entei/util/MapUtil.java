@@ -16,7 +16,7 @@ public class MapUtil {
 	
 	private static final String getRandomFileFromHashMap(final HashMap<Integer, String> files) {
 		ArrayList<String> list = new ArrayList<>(files.values());
-		return list.get(StringUtil.getRandomIntBetween(0, list.size()));
+		return list.get(StringUtils.getRandomIntBetween(0, list.size()));
 	}
 	
 	public static final String getRandomLinkFor(final HashMap<Integer, String> files, final String path, final String pathPrefix, final DomainDirectory domainDirectory, final String httpProtocol, final ClientInfo clientInfo) {
@@ -47,7 +47,7 @@ public class MapUtil {
 		
 		if(file.exists()) {
 			String unAliasedPath = (newPath.startsWith("/") ? "" : "/") + newPath;
-			return StringUtil.encodeHTML(httpProtocol + clientInfo.host + StringUtil.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
+			return StringUtils.encodeHTML(httpProtocol + clientInfo.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
 		}
 		return null;
 	}
@@ -78,7 +78,7 @@ public class MapUtil {
 			long smallestSize = Long.MAX_VALUE;
 			for(Entry<Integer, FileInfo> entry : infos.entrySet()) {
 				FileInfo info = entry.getValue();
-				if(info != null && StringUtil.isStrLong(info.contentLength)) {
+				if(info != null && StringUtils.isStrLong(info.contentLength)) {
 					long size = Long.valueOf(info.contentLength).longValue();
 					if(size < smallestSize) {
 						smallestInfoKey = entry.getKey();

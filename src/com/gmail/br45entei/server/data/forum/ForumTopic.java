@@ -5,7 +5,7 @@ import com.gmail.br45entei.server.data.DisposableUUIDData;
 import com.gmail.br45entei.server.data.HTMLParsableData;
 import com.gmail.br45entei.server.data.SavableData;
 import com.gmail.br45entei.util.PrintUtil;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -163,7 +163,7 @@ public class ForumTopic implements DisposableUUIDData, SavableData, HTMLParsable
 		if(uuid == null || uuid.isEmpty()) {
 			return null;
 		}
-		if(StringUtil.isStrUUID(uuid)) {
+		if(StringUtils.isStrUUID(uuid)) {
 			return getForumCommentFromUUID(UUID.fromString(uuid));
 		}
 		return null;
@@ -260,7 +260,7 @@ public class ForumTopic implements DisposableUUIDData, SavableData, HTMLParsable
 			if(curCommentFolder.exists() && curCommentFolder.isDirectory()) {
 				File commentFile = new File(curCommentFolder, "comment.yml");
 				if(commentFile.exists() && commentFile.isFile()) {
-					if(StringUtil.isStrUUID(folderName)) {
+					if(StringUtils.isStrUUID(folderName)) {
 						UUID commentUUID = UUID.fromString(folderName);
 						ForumComment comment = new ForumComment(commentUUID, this);
 						this.addComment(comment);
@@ -344,7 +344,7 @@ public class ForumTopic implements DisposableUUIDData, SavableData, HTMLParsable
 			this.title = config.getString("title", "Topic Title");
 			this.dateCreated = config.getLong("dateCreated", this.dateCreated);
 			String authorUUID = config.getString("author", "");
-			if(StringUtil.isStrUUID(authorUUID)) {
+			if(StringUtils.isStrUUID(authorUUID)) {
 				this.author = UUID.fromString(authorUUID);
 			} else {
 				PrintUtil.printErrln("Warning! The saved author UUID for the topic \"/forum/" + this.board.forum.getName() + "/topic/" + this.getTitleInURL() + "\" was not a valid UUID string!");

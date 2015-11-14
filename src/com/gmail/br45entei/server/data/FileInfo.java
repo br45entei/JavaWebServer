@@ -3,7 +3,7 @@ package com.gmail.br45entei.server.data;
 import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.server.ClientInfo;
 import com.gmail.br45entei.server.MimeTypes;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -67,7 +67,7 @@ public final class FileInfo {
 			URL fileURL = file.toURI().toURL();
 			final URLConnection conn = fileURL.openConnection();
 			this.contentLength = conn.getContentLengthLong() + "";
-			this.lastModified = StringUtil.getTime(this.lastModifiedLong, false) + "";
+			this.lastModified = StringUtils.getTime(this.lastModifiedLong, false) + "";
 			InputStream in = conn.getInputStream();
 			if(in != null) {
 				try {
@@ -77,7 +77,7 @@ public final class FileInfo {
 			}
 		} else if(file.exists() && file.isDirectory()) {
 			this.contentLength = calculateDirectorySizes ? FileUtils.sizeOfDirectory(file) + "" : "0";
-			this.lastModified = StringUtil.getTime(this.lastModifiedLong, false);
+			this.lastModified = StringUtils.getTime(this.lastModifiedLong, false);
 		} else {
 			this.contentLength = "0";
 			this.lastModified = "UNKNOWN";

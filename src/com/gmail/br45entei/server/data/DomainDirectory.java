@@ -6,7 +6,7 @@ import com.gmail.br45entei.configuration.ConfigurationSection;
 import com.gmail.br45entei.configuration.file.YamlConfiguration;
 import com.gmail.br45entei.server.MimeTypes;
 import com.gmail.br45entei.swt.Functions;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -20,7 +20,6 @@ import java.util.Map.Entry;
 import java.util.UUID;
 
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.lang3.StringUtils;
 
 /** Class used to load save and read data pertaining to each domain that has
  * been assigned to this server
@@ -181,7 +180,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 		if(uuid == null || uuid.isEmpty()) {
 			return null;
 		}
-		if(StringUtil.isStrUUID(uuid)) {
+		if(StringUtils.isStrUUID(uuid)) {
 			return getDomainDirectoryFromUUID(UUID.fromString(uuid));
 		}
 		return null;
@@ -611,7 +610,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 		final boolean administrateFile = administrateFileCheck != null ? (administrateFileCheck.equals("1") || administrateFileCheck.equalsIgnoreCase("true")) : false;
 		
 		File homeDirectory = this.getDirectory();
-		File requestedFile = new File(homeDirectory, StringUtil.decodeHTML(this.replaceAliasWithPath(requestedFilePath)));
+		File requestedFile = new File(homeDirectory, StringUtils.decodeHTML(this.replaceAliasWithPath(requestedFilePath)));
 		if(requestedFilePath.equals("/")) {
 			if(!administrateFile) {
 				requestedFile = new File(homeDirectory, this.getDefaultFileName());
@@ -625,7 +624,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 		if((requestedFile == null || !requestedFile.exists())) {
 			if(requestedFilePath.equalsIgnoreCase(JavaWebServer.DEFAULT_PAGE_ICON)) {
 				requestedFilePath = this.getDefaultPageIcon();
-				requestedFile = new File(homeDirectory, StringUtil.decodeHTML(this.replaceAliasWithPath(requestedFilePath)));
+				requestedFile = new File(homeDirectory, StringUtils.decodeHTML(this.replaceAliasWithPath(requestedFilePath)));
 			} else if(requestedFilePath.equalsIgnoreCase(JavaWebServer.DEFAULT_STYLESHEET)) {
 				File check = this.getDefaultStyleSheetFromFileSystem();
 				requestedFile = check.exists() ? check : requestedFile;
@@ -778,6 +777,10 @@ public final class DomainDirectory implements DisposableUUIDData {
 	/** @return Whether or not this domain data's settings were saved to file
 	 *         successfully */
 	public final boolean saveToFile() {
+		if(this.folder.getValue() == null || this.domain.getValue() == null) {
+			this.dispose();
+			return false;
+		}
 		try {
 			if(this.getDisplayLogEntries()) {
 				JavaWebServer.println("\tSaving domain directory data for folder \"" + this.folder.getValue().getAbsolutePath() + "\" and domain \"" + this.domain.getValue() + "\"...");

@@ -43,7 +43,7 @@ import org.apache.commons.lang3.StringEscapeUtils;
 import org.mozilla.universalchardet.UniversalDetector;
 
 /** @author Brian_Entei */
-public strictfp class StringUtil {
+public strictfp class StringUtils {
 	private static final Random	random	= new Random();
 	
 	public static final int getRandomIntBetween(int min, int max) {
@@ -90,7 +90,7 @@ public strictfp class StringUtil {
 		//long millis = -((4 * MILLENNIUM) + (364 * DAY) + (0 * HOUR) + (0 * MINUTE) + (0 * SECOND) + (0 * MILLISECOND));
 		//long millis = -1L + YEAR;
 		long millis = 0L;
-		System.out.println(StringUtil.getElapsedTime(millis));
+		System.out.println(StringUtils.getElapsedTime(millis));
 	}
 	
 	public static final int getLengthOfLongestLineInStr(String str) {
@@ -755,6 +755,17 @@ public strictfp class StringUtil {
 	 * @return The given text with its first letter capitalized */
 	public static final String captializeFirstLetter(String str) {
 		return str.substring(0, 1).toUpperCase() + str.substring(1);
+	}
+	
+	/** Pass-through method for
+	 * {@link org.apache.commons.lang3.StringUtils#replaceOnce(String, String, String)}
+	 * 
+	 * @param text The input string
+	 * @param searchString The string to replace
+	 * @param replacement The replacement string
+	 * @return The resulting string */
+	public static final String replaceOnce(String text, String searchString, String replacement) {
+		return org.apache.commons.lang3.StringUtils.replaceOnce(text, searchString, replacement);
 	}
 	
 }

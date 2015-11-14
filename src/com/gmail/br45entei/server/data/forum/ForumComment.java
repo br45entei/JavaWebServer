@@ -5,7 +5,7 @@ import com.gmail.br45entei.server.data.DisposableUUIDData;
 import com.gmail.br45entei.server.data.HTMLParsableData;
 import com.gmail.br45entei.server.data.SavableData;
 import com.gmail.br45entei.util.PrintUtil;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -147,7 +147,7 @@ public class ForumComment implements DisposableUUIDData, SavableData, HTMLParsab
 			config.load(file);
 			this.dateCreated = config.getLong("dateCreated", this.dateCreated);
 			String authorUUID = config.getString("author", "");
-			if(StringUtil.isStrUUID(authorUUID)) {
+			if(StringUtils.isStrUUID(authorUUID)) {
 				this.author = UUID.fromString(authorUUID);
 			} else {
 				PrintUtil.printErrln("Warning! The saved author UUID for the topic \"/forum/" + this.topic.board.forum.getName() + "/topic/" + this.topic.getTitleInURL() + "#comment-" + this.topic.getIntegerOfComment(this) + "\" was not a valid UUID string!");

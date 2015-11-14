@@ -10,10 +10,12 @@ import com.gmail.br45entei.swt.Response;
 import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.LogUtils;
 import com.gmail.br45entei.util.PrintUtil;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
+import java.security.Security;
 import java.util.ArrayList;
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.ScrolledComposite;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -67,6 +69,10 @@ public class Main {
 	private Composite			activeProxyConnections;
 	private Label				lblNoProxyConnections;
 	
+	static {
+		Security.addProvider(new BouncyCastleProvider());
+	}
+	
 	public final Thread getThread() {
 		return this.currentThread;
 	}
@@ -103,7 +109,7 @@ public class Main {
 			instance = window;
 			PrintUtil.printlnNow(JavaWebServer.TERMINAL_NOTICE);
 			if(enableWindowThread) {
-				window.showWindow = !StringUtil.containsIgnoreCase("nogui", args);
+				window.showWindow = !StringUtils.containsIgnoreCase("nogui", args);
 				window.open(args);
 			} else {
 				window.serverThread.start();
@@ -120,7 +126,7 @@ public class Main {
 	
 	private Main(final String[] args) {
 		instance = this;
-		this.showConsoleWindow = System.console() == null || StringUtil.containsIgnoreCase("console", args);
+		this.showConsoleWindow = System.console() == null || StringUtils.containsIgnoreCase("console", args);
 		this.consoleWindow = new ConsoleWindow();
 		if(this.showConsoleWindow) {
 			this.consoleWindow.createContents();

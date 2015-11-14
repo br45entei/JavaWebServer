@@ -112,7 +112,7 @@ public class AddressUtil {
 		if(port.startsWith(":")) {
 			port = port.substring(1);
 		}
-		if(StringUtil.isStrLong(port)) {
+		if(StringUtils.isStrLong(port)) {
 			p = Long.valueOf(port).intValue();
 		}
 		return p;
@@ -145,7 +145,7 @@ public class AddressUtil {
 	/** @return One of the many available local ip addresses or the external ip
 	 *         address of this machine, chosen randomly */
 	public static final String getALocalIP() {
-		final int random = StringUtil.getRandomIntBetween(0, 8);
+		final int random = StringUtils.getRandomIntBetween(0, 8);
 		String rtrn = getIp();
 		switch(random) {
 		case 0:

@@ -15,52 +15,52 @@ import org.apache.commons.lang3.StringUtils;
  * @author Brian_Entei */
 public final class ClientInfo implements ClientStatus {
 	/** The client */
-	private final Socket	client;
-	private final long		startTime;
+	private final Socket			client;
+	private final long				startTime;
 	/** The file that the client is requesting */
-	public final FileInfo	requestedFile;
+	public final FileInfo			requestedFile;
 	/** This connection's Universally Unique Identifier */
-	public final UUID		uuid;
+	public final UUID				uuid;
 	
 	//TODO Remove the header information below, as it is already stored in HTTPClientRequest
 	
 	/** The HTTP protocol request that the client sent(i.e. GET, HEAD, POST,
 	 * etc) */
-	public final String		protocolRequest;
+	public final String				protocolRequest;
 	/** The domain or host used to connect to this server(e.g.
 	 * www.example.com or 192.168.0.1) */
-	public final String		host;
+	public final String				host;
 	/** HTTP header sent by the client */
-	public final String		connectionSetting;
+	public final String				connectionSetting;
 	/** HTTP header sent by the client */
-	public final String		cacheControl;
+	public final String				cacheControl;
 	/** HTTP header sent by the client */
-	public final String		accept;
+	public final String				accept;
 	/** HTTP header sent by the client */
-	public final String		userAgent;
+	public final String				userAgent;
 	/** HTTP header sent by the client */
-	public final String		dnt;
+	public final String				dnt;
 	/** HTTP header sent by the client */
-	public final String		referrerLink;
+	public final String				referrerLink;
 	/** HTTP header sent by the client */
-	public final String		acceptEncoding;
+	public final String				acceptEncoding;
 	/** HTTP header sent by the client */
-	public final String		acceptLanguage;
+	public final String				acceptLanguage;
 	/** HTTP header sent by the client */
-	public final String		from;
+	public final String				from;
 	/** HTTP header sent by the client */
-	public final String		cookie;
+	public final ArrayList<String>	cookies;
 	/** HTTP header sent by the client */
-	public final String		range;
+	public final String				range;
 	/** HTTP header sent by the client */
-	public final String		authorization;
+	public final String				authorization;
 	/** HTTP header sent by the client */
-	public final String		ifModifiedSince;
+	public final String				ifModifiedSince;
 	/** HTTP header sent by the client */
-	public final String		ifRange;
+	public final String				ifRange;
 	/** HTTP header sent by the client */
-	public final String		ifNoneMatch;
-	private long			lastWriteTime	= System.currentTimeMillis();
+	public final String				ifNoneMatch;
+	private long					lastWriteTime	= System.currentTimeMillis();
 	
 	/** @return The last time data was written to the client, in milliseconds */
 	public long getLastWriteTime() {
@@ -96,7 +96,7 @@ public final class ClientInfo implements ClientStatus {
 	 * @param ifModifiedSince A date header sent by the client used to
 	 *            determine if the file has been modified since that date
 	 * @param ifNoneMatch HTTP header sent by the client */
-	public ClientInfo(Socket client, FileInfo requestedFile, String protocolRequest, String host, String connectionSetting, String cacheControl, String accept, String userAgent, String dnt, String referrerLink, String acceptEncoding, String acceptLanguage, String from, String cookie, String range, String authorization, String ifModifiedSince, String ifNoneMatch, String ifRange) {
+	public ClientInfo(Socket client, FileInfo requestedFile, String protocolRequest, String host, String connectionSetting, String cacheControl, String accept, String userAgent, String dnt, String referrerLink, String acceptEncoding, String acceptLanguage, String from, ArrayList<String> cookies, String range, String authorization, String ifModifiedSince, String ifNoneMatch, String ifRange) {
 		this.client = client;
 		this.startTime = System.currentTimeMillis();
 		this.requestedFile = requestedFile;
@@ -112,7 +112,7 @@ public final class ClientInfo implements ClientStatus {
 		this.acceptEncoding = acceptEncoding;
 		this.acceptLanguage = acceptLanguage;
 		this.from = from;
-		this.cookie = cookie;
+		this.cookies = new ArrayList<>(cookies);
 		this.range = range;
 		this.authorization = authorization;
 		this.ifModifiedSince = ifModifiedSince;

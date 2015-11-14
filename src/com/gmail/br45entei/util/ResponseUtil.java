@@ -24,7 +24,7 @@ public class ResponseUtil {
 	public static final void send404Response(final Socket s, HTTPClientRequest request, HTTPServerResponse response, ClientInfo clientInfo, DomainDirectory domainDirectory, String pageHeader) throws IOException {
 		response.setStatusCode(HTTP_404);
 		response.setHeader("Vary", "Accept-Encoding");
-		response.setHeader("Date", StringUtil.getCurrentCacheTime());
+		response.setHeader("Date", StringUtils.getCurrentCacheTime());
 		response.setHeader("Content-Type", "text/html; charset=UTF-8");
 		response.setHeader("Server", JavaWebServer.SERVER_NAME_HEADER);
 		response.setHeader("Cache-Control", "public, max-age=" + domainDirectory.getCacheMaxAge());
@@ -35,7 +35,7 @@ public class ResponseUtil {
 				+ "\t\t<link rel=\"shortcut icon\" href=\"" + domainDirectory.getDefaultPageIcon() + "\" type=\"image/x-icon\">\r\n"//
 				+ "\t\t<title>404 - File not Found!!!11 - " + domainDirectory.getServerName() + "</title>\r\n"//
 				+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
-				+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+				+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
 				+ "\t</head>\r\n"//
 				+ "\t<body>\r\n"//
 				+ "\t\t<h1>Error 404 - File not found</h1><hr>\r\n"//
@@ -49,13 +49,13 @@ public class ResponseUtil {
 	public static final void send408Response(final Socket s, final String clientAddress) throws IOException {
 		String detectedEncodingOfStyleSheet;
 		try {
-			detectedEncodingOfStyleSheet = StringUtil.getDetectedEncoding(new File(FilenameUtils.normalize(JavaWebServer.homeDirectory.getAbsolutePath() + File.separatorChar + JavaWebServer.DEFAULT_STYLESHEET)));
+			detectedEncodingOfStyleSheet = StringUtils.getDetectedEncoding(new File(FilenameUtils.normalize(JavaWebServer.homeDirectory.getAbsolutePath() + File.separatorChar + JavaWebServer.DEFAULT_STYLESHEET)));
 		} catch(Throwable ignored) {
 			detectedEncodingOfStyleSheet = null;
 		}
 		new HTTPServerResponse("HTTP/1.1", HTTP_408, false, StandardCharsets.UTF_8)//
 		.setHeader("Vary", "Accept-Encoding")//
-		.setHeader("Date", StringUtil.getCurrentCacheTime())//
+		.setHeader("Date", StringUtils.getCurrentCacheTime())//
 		.setHeader("Content-Type", "text/html; charset=UTF-8")//
 		.setHeader("Server", JavaWebServer.SERVER_NAME_HEADER)//
 		.setHeader("Cache-Control", JavaWebServer.cachePrivateMustRevalidate)//
@@ -89,7 +89,7 @@ public class ResponseUtil {
 				+ "\t\t<link rel=\"shortcut icon\" href=\"" + (domainDirectory == null ? JavaWebServer.DEFAULT_PAGE_ICON : domainDirectory.getDefaultPageIcon()) + "\" type=\"image/x-icon\">\r\n"//
 				+ "\t\t<title>Error 421 Misdirected Request - " + (domainDirectory == null ? JavaWebServer.SERVER_NAME : domainDirectory.getServerName()) + "</title>\r\n"//
 				+ "\t\t<style>body{font-family:\'" + (domainDirectory == null ? JavaWebServer.defaultFontFace : domainDirectory.getDefaultFontFace()) + "\';}</style>\r\n"//
-				+ ((domainDirectory == null ? true : domainDirectory.doesDefaultStyleSheetExist()) ? "\t\t<link rel=\"stylesheet\" href=\"" + (domainDirectory == null ? JavaWebServer.DEFAULT_STYLESHEET : domainDirectory.getDefaultStylesheet()) + "\" type=\"text/css\" charset=\"" + (domainDirectory == null ? Charset.defaultCharset().name() : StringUtil.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem())) + "\">\r\n" : "")//
+				+ ((domainDirectory == null ? true : domainDirectory.doesDefaultStyleSheetExist()) ? "\t\t<link rel=\"stylesheet\" href=\"" + (domainDirectory == null ? JavaWebServer.DEFAULT_STYLESHEET : domainDirectory.getDefaultStylesheet()) + "\" type=\"text/css\" charset=\"" + (domainDirectory == null ? Charset.defaultCharset().name() : StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem())) + "\">\r\n" : "")//
 				+ "\t</head>\r\n"//
 				+ "\t<body>\r\n"//
 				+ "\t\t<h1>Error 421 - Misdirected Request</h1><hr>\r\n"//

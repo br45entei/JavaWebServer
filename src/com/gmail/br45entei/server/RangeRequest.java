@@ -2,7 +2,7 @@ package com.gmail.br45entei.server;
 
 import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.server.data.FileInfo;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,12 +32,12 @@ public class RangeRequest {
 				JavaWebServer.printlnDebug("TEST 2: rangeSplit.length: " + rangeSplit.length);
 				JavaWebServer.printlnDebug("TEST 3: content length: " + contentLength);
 				
-				startBytes = StringUtil.getLongFromStr(rangeSplit[0]).longValue();
+				startBytes = StringUtils.getLongFromStr(rangeSplit[0]).longValue();
 				JavaWebServer.printlnDebug("TEST 4: start bytes: " + startBytes);
 				if(range.endsWith("-")) {
 					endBytes = contentLength - 1;
 				} else {
-					endBytes = StringUtil.getLongFromStr(rangeSplit[1]).longValue();
+					endBytes = StringUtils.getLongFromStr(rangeSplit[1]).longValue();
 				}
 				JavaWebServer.printlnDebug("TEST 5: end bytes: " + endBytes);
 			}

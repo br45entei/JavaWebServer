@@ -4,7 +4,7 @@ import com.gmail.br45entei.server.ClientInfo;
 import com.gmail.br45entei.server.ClientRequestStatus;
 import com.gmail.br45entei.server.ClientStatus;
 import com.gmail.br45entei.swt.Functions;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.util.UUID;
 
@@ -159,16 +159,16 @@ public final class CompositeInfo extends Composite {
 				}
 			}
 		}
-		labelStr = labelStr.replace("&", "&&") + " Elapsed time: " + StringUtil.getElapsedTime(System.currentTimeMillis() - this.status.getStartTime());
+		labelStr = labelStr.replace("&", "&&") + " Elapsed time: " + StringUtils.getElapsedTime(System.currentTimeMillis() - this.status.getStartTime());
 		if(this.status instanceof ClientInfo) {
-			labelStr += "; Last write time: " + StringUtil.getElapsedTime(System.currentTimeMillis() - ((ClientInfo) this.status).getLastWriteTime());
+			labelStr += "; Last write time: " + StringUtils.getElapsedTime(System.currentTimeMillis() - ((ClientInfo) this.status).getLastWriteTime());
 		} else if(this.status instanceof ClientRequestStatus) {
 			final ClientRequestStatus status = (ClientRequestStatus) this.status;
 			if(status.isProxyRequest()) {
-				labelStr += "; Last C-to-S write time: " + StringUtil.getElapsedTime(System.currentTimeMillis() - status.getLastReadTime());
-				labelStr += "; Last S-to-C write time: " + StringUtil.getElapsedTime(System.currentTimeMillis() - status.getLastWriteTime());
+				labelStr += "; Last C-to-S write time: " + StringUtils.getElapsedTime(System.currentTimeMillis() - status.getLastReadTime());
+				labelStr += "; Last S-to-C write time: " + StringUtils.getElapsedTime(System.currentTimeMillis() - status.getLastWriteTime());
 			} else {
-				labelStr += "; Last read time: " + StringUtil.getElapsedTime(System.currentTimeMillis() - status.getLastReadTime());
+				labelStr += "; Last read time: " + StringUtils.getElapsedTime(System.currentTimeMillis() - status.getLastReadTime());
 			}
 		}
 		this.lblActiveConnection.setText(labelStr);

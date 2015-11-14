@@ -7,7 +7,7 @@ import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.CodeUtil.EnumOS;
 import com.gmail.br45entei.util.LogUtils;
 import com.gmail.br45entei.util.PrintUtil;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.awt.Desktop;
 import java.io.BufferedReader;
@@ -116,16 +116,16 @@ public class ConsoleThread extends Thread {
 			int i = 1;
 			for(Thread thread : threads) {
 				long cpuTime = tmxb.getThreadCpuTime(thread.getId()) / 1000000;
-				PrintUtil.println("Thread #" + (i++) + ": Name: \"" + thread.getName() + "\"; State: " + thread.getState().toString() + "; cpu time: " + StringUtil.getElapsedTime(cpuTime, true));
+				PrintUtil.println("Thread #" + (i++) + ": Name: \"" + thread.getName() + "\"; State: " + thread.getState().toString() + "; cpu time: " + StringUtils.getElapsedTime(cpuTime, true));
 			}
 			if(args.length >= 1) {
-				String filePath = StringUtil.stringArrayToString(args, ' ');
+				String filePath = StringUtils.stringArrayToString(args, ' ');
 				File file = new File(filePath);
 				try(PrintWriter pr = new PrintWriter(new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8), true)) {
 					for(Entry<Thread, StackTraceElement[]> entry : stackTraces.entrySet()) {
 						Thread thread = entry.getKey();
 						long cpuTime = tmxb.getThreadCpuTime(thread.getId()) / 1000000;
-						pr.print("=====Thread: name: \"" + thread.getName() + "\"; state: \"" + thread.getState().toString() + "\"; CPU Time: " + StringUtil.getElapsedTime(cpuTime, true) + "; StackTrace:\r\n" + LogUtils.stackTraceElementsToStr(entry.getValue()) + "\r\n");
+						pr.print("=====Thread: name: \"" + thread.getName() + "\"; state: \"" + thread.getState().toString() + "\"; CPU Time: " + StringUtils.getElapsedTime(cpuTime, true) + "; StackTrace:\r\n" + LogUtils.stackTraceElementsToStr(entry.getValue()) + "\r\n");
 					}
 					pr.flush();
 					if(Desktop.isDesktopSupported()) {

@@ -10,7 +10,7 @@ import com.gmail.br45entei.swt.WindowsClassicThemeDetector;
 import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.LogUtils;
 import com.gmail.br45entei.util.PrintUtil;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -81,7 +81,7 @@ public class ConsoleWindow {
 																								}
 																								CodeUtil.sleep(10L);
 																								final int maxLines = 10000;
-																								final int numOfLines = StringUtil.getNumOfLinesInStr(t);
+																								final int numOfLines = StringUtils.getNumOfLinesInStr(t);
 																								CodeUtil.sleep(10L);
 																								if(numOfLines > maxLines) {
 																									final int numOfLinesToSkip = numOfLines - maxLines;
@@ -279,12 +279,12 @@ public class ConsoleWindow {
 									if(args.length == 1 && args[0].equals("?") || args[0].equalsIgnoreCase("help")) {
 										PrintUtil.printlnNow("Font commands:\r\nsetFont {font name]\r\nsetFontSize {size}\r\nsetFontBold {true|false}\r\nsetFontItalic {true|false}\r\nsetFontUnderline {true|false}\r\nsetFontStrikeout {true|false}\r\nsaveFontSettings");
 									} else {
-										ConsoleWindow.this.consoleFontName = StringUtil.stringArrayToString(args, ' ');
+										ConsoleWindow.this.consoleFontName = StringUtils.stringArrayToString(args, ' ');
 									}
 								}
 							} else if(command.equalsIgnoreCase("setfontsize")) {
 								if(args.length == 1) {
-									if(StringUtil.isStrLong(args[0])) {
+									if(StringUtils.isStrLong(args[0])) {
 										int size = Long.valueOf(args[0]).intValue();
 										if(size >= 0) {
 											ConsoleWindow.this.consoleFontSize = size;
@@ -436,7 +436,7 @@ public class ConsoleWindow {
 					if(pname.equalsIgnoreCase("fontName")) {
 						this.consoleFontName = value;
 					} else if(pname.equalsIgnoreCase("fontSize")) {
-						if(StringUtil.isStrLong(value)) {
+						if(StringUtils.isStrLong(value)) {
 							this.consoleFontSize = Long.valueOf(value).intValue();
 						}
 					} else if(pname.equalsIgnoreCase("fontBold")) {
@@ -545,7 +545,7 @@ public class ConsoleWindow {
 		this.runClock();
 		final ThreadMXBean tmxb = ManagementFactory.getThreadMXBean();
 		for(Entry<Thread, StackTraceElement[]> entry : Thread.getAllStackTraces().entrySet()) {
-			text += "=====Thread: name: \"" + entry.getKey().getName() + "\"; state: \"" + entry.getKey().getState().toString() + "\"; CPU Time: " + StringUtil.getElapsedTime(tmxb.getThreadCpuTime(entry.getKey().getId()) / 1000000, true) + "; StackTrace:\r\n" + LogUtils.stackTraceElementsToStr(entry.getValue()) + "\r\n";
+			text += "=====Thread: name: \"" + entry.getKey().getName() + "\"; state: \"" + entry.getKey().getState().toString() + "\"; CPU Time: " + StringUtils.getElapsedTime(tmxb.getThreadCpuTime(entry.getKey().getId()) / 1000000, true) + "; StackTrace:\r\n" + LogUtils.stackTraceElementsToStr(entry.getValue()) + "\r\n";
 			this.runClock();
 		}
 		text += "\r\n============";

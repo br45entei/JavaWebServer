@@ -3,7 +3,7 @@ package com.gmail.br45entei.server.data;
 import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.configuration.ConfigurationSection;
 import com.gmail.br45entei.configuration.file.YamlConfiguration;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -96,7 +96,7 @@ public final class RestrictedFile implements DisposableUUIDData {
 		if(uuid == null || uuid.isEmpty()) {
 			return null;
 		}
-		if(StringUtil.isStrUUID(uuid)) {
+		if(StringUtils.isStrUUID(uuid)) {
 			return getRestrictedFileFromUUID(UUID.fromString(uuid));
 		}
 		return null;
@@ -563,7 +563,7 @@ public final class RestrictedFile implements DisposableUUIDData {
 			File file = new File(saveFolder, fileName);
 			if(file.exists() && FilenameUtils.getExtension(file.getAbsolutePath()).equals("yml")) {
 				String uuidStr = FilenameUtils.getBaseName(file.getAbsolutePath());
-				if(StringUtil.isStrUUID(uuidStr)) {
+				if(StringUtils.isStrUUID(uuidStr)) {
 					RestrictedFile check = null;
 					UUID uuid = UUID.fromString(uuidStr);
 					for(RestrictedFile curRestrictedFile : getInstances()) {

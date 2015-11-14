@@ -6,7 +6,7 @@ import com.gmail.br45entei.server.HTTPServerResponse;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.util.AddressUtil;
 import com.gmail.br45entei.util.PrintUtil;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -18,7 +18,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.lang3.StringUtils;
 
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_200;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_404;
@@ -44,7 +43,7 @@ public final class ForumClientResponder {
 				return false;
 			} else if(request.protocol.equalsIgnoreCase("OPTIONS")) {
 				response.setStatusCode(HTTP_200);
-				response.setHeader("Date", StringUtil.getCurrentCacheTime());
+				response.setHeader("Date", StringUtils.getCurrentCacheTime());
 				response.setHeader("Allow", "GET,HEAD,POST,OPTIONS");
 				response.setHeader("Content-Type", "text/plain; charset=UTF-8");
 				response.setHeader("Server", JavaWebServer.SERVER_NAME_HEADER);
@@ -84,17 +83,17 @@ public final class ForumClientResponder {
 					response.setResponse("Topic pages are not yet implemented.\r\n");
 					response.appendResponse("Topic title: " + topic.getTitle() + "\r\n");
 					response.appendResponse("--\tMessage: " + topic.getMessage() + "\r\n");
-					response.appendResponse("--\tDate created: \"" + StringUtil.getCacheTime(topic.getDateCreated()) + "\"(" + topic.getDateCreated() + ")\r\n");
+					response.appendResponse("--\tDate created: \"" + StringUtils.getCacheTime(topic.getDateCreated()) + "\"(" + topic.getDateCreated() + ")\r\n");
 					ArrayList<ForumComment> comments = topic.getComments();
 					if(!comments.isEmpty()) {
 						response.appendResponse("--\tComments:\r\n");
 						for(ForumComment comment : comments) {
 							response.appendResponse("#" + comment.getNumber() + ":\r\n");
-							response.appendResponse("--\tDate created: \"" + StringUtil.getCacheTime(comment.getDateCreated()) + "\"(" + comment.getDateCreated() + ")\r\n");
-							response.appendResponse("--\tDate posted: \"" + StringUtil.getCacheTime(comment.getDatePosted()) + "\"(" + comment.getDatePosted() + ")\r\n");
+							response.appendResponse("--\tDate created: \"" + StringUtils.getCacheTime(comment.getDateCreated()) + "\"(" + comment.getDateCreated() + ")\r\n");
+							response.appendResponse("--\tDate posted: \"" + StringUtils.getCacheTime(comment.getDatePosted()) + "\"(" + comment.getDatePosted() + ")\r\n");
 							response.appendResponse("--\tPost number: \"" + comment.getNumber() + "\r\n");
 							response.appendResponse("--\tEdit count: \"" + comment.getEditCount() + "\r\n");
-							response.appendResponse("--\tLast edit time: \"" + StringUtil.getCacheTime(comment.getLastEditTime()) + "\"(" + comment.getLastEditTime() + ")\r\n");
+							response.appendResponse("--\tLast edit time: \"" + StringUtils.getCacheTime(comment.getLastEditTime()) + "\"(" + comment.getLastEditTime() + ")\r\n");
 						}
 					} else {
 						response.appendResponse("--\tComments: (None)\r\n");
@@ -107,7 +106,7 @@ public final class ForumClientResponder {
 					response.setResponse("Board pages are not yet implemented.\r\n");
 					response.appendResponse("Board name: " + board.getName() + "\r\n");
 					response.appendResponse("--\tDescription: " + board.getDescription() + "\r\n");
-					response.appendResponse("--\tDate created: \"" + StringUtil.getCacheTime(board.getDateCreated()) + "\"(" + board.getDateCreated() + ")\r\n");
+					response.appendResponse("--\tDate created: \"" + StringUtils.getCacheTime(board.getDateCreated()) + "\"(" + board.getDateCreated() + ")\r\n");
 					ArrayList<ForumTopic> topics = board.getTopics();
 					if(!topics.isEmpty()) {
 						response.appendResponse("--\tTopics:\r\n");
@@ -117,7 +116,7 @@ public final class ForumClientResponder {
 							response.appendResponse("\t--\tAuthor UUID: " + curTopic.getAuthorAsUUID().toString() + "\r\n");
 							response.appendResponse("\t--\tMessage: " + curTopic.getMessage() + "\r\n");
 							response.appendResponse("\t--\tView Count: " + curTopic.getViewCount() + "\r\n");
-							response.appendResponse("\t--\tLast Activity Time: \"" + StringUtil.getCacheTime(curTopic.getLastActivityTime()) + "\"(" + curTopic.getLastActivityTime() + ")\r\n");
+							response.appendResponse("\t--\tLast Activity Time: \"" + StringUtils.getCacheTime(curTopic.getLastActivityTime()) + "\"(" + curTopic.getLastActivityTime() + ")\r\n");
 							response.appendResponse("\t--\tIs Locked: " + curTopic.isLocked() + "\r\n");
 							response.appendResponse("\t--\tIs Sticky: " + curTopic.isSticky() + "\r\n");
 							response.appendResponse("\t--\tIs Private: " + curTopic.isPrivate() + "\r\n");
@@ -162,7 +161,7 @@ public final class ForumClientResponder {
 								+ "\t\t<link rel=\"shortcut icon\" href=\"" + domainDirectory.getDefaultPageIcon() + "\" type=\"image/x-icon\">\r\n"//
 								+ "\t\t<title>404 - File not Found!!!11 - " + domainDirectory.getServerName() + "</title>\r\n"//
 								+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
-								+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+								+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
 								+ "\t</head>\r\n"//
 								+ "\t<body>\r\n"//
 								+ "\t\t<h1>Error 404 - File not found</h1><hr>\r\n"//

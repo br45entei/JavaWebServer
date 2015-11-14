@@ -3,7 +3,7 @@ package com.gmail.br45entei.server;
 import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FileInfo;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -206,7 +206,7 @@ public class HTTPServerResponse {
 			if(this.responseFile == null) {
 				if((this.domainDirectory == null ? true : this.domainDirectory.getEnableGZipCompression()) && this.useGZip && this.response.length() > 33) {
 					pr.println("Content-Encoding: gzip");
-					byte[] r = StringUtil.compressString(this.response, this.charset.name());
+					byte[] r = StringUtils.compressString(this.response, this.charset.name());
 					pr.println("Content-Length: " + r.length);
 					pr.println("");
 					this.markWriteTime();

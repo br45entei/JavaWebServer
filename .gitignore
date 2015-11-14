@@ -58,3 +58,5 @@ javaDoc.xml
 src.zip.bat
 WhoisTest.java
 resources/assets/src.zip
+MANIFEST.MF
+Export_to_jars.jardesc

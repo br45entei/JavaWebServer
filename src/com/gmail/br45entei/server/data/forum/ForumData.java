@@ -7,7 +7,7 @@ import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.HTMLParsableData;
 import com.gmail.br45entei.server.data.SavableData;
 import com.gmail.br45entei.swt.Functions;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -48,7 +48,7 @@ public class ForumData implements DisposableUUIDData, SavableData, HTMLParsableD
 		if(uuid == null || uuid.isEmpty()) {
 			return null;
 		}
-		if(StringUtil.isStrUUID(uuid)) {
+		if(StringUtils.isStrUUID(uuid)) {
 			return getForumDataFromUUID(UUID.fromString(uuid));
 		}
 		return null;
@@ -90,7 +90,7 @@ public class ForumData implements DisposableUUIDData, SavableData, HTMLParsableD
 		if(uuid == null || uuid.isEmpty()) {
 			return null;
 		}
-		if(StringUtil.isStrUUID(uuid)) {
+		if(StringUtils.isStrUUID(uuid)) {
 			return getForumBoardFromUUID(UUID.fromString(uuid));
 		}
 		return null;
@@ -308,7 +308,7 @@ public class ForumData implements DisposableUUIDData, SavableData, HTMLParsableD
 	}
 	
 	public final ForumUser getUserFromUUID(String uuid) {
-		if(uuid == null || uuid.isEmpty() || !StringUtil.isStrUUID(uuid)) {
+		if(uuid == null || uuid.isEmpty() || !StringUtils.isStrUUID(uuid)) {
 			return null;
 		}
 		return getUserFromUUID(UUID.fromString(uuid));
@@ -563,7 +563,7 @@ public class ForumData implements DisposableUUIDData, SavableData, HTMLParsableD
 			if(curBoardFolder.exists() && curBoardFolder.isDirectory()) {
 				File boardFile = new File(curBoardFolder, "board.yml");
 				if(boardFile.exists() && boardFile.isFile()) {
-					if(StringUtil.isStrUUID(folderName)) {
+					if(StringUtils.isStrUUID(folderName)) {
 						UUID boardUUID = UUID.fromString(folderName);
 						ForumBoard board = new ForumBoard(boardUUID, this);
 						board.loadFromFile();
@@ -623,7 +623,7 @@ public class ForumData implements DisposableUUIDData, SavableData, HTMLParsableD
 			rtrn += "<div>\r\n<h1><a href=\"/" + this.getName() + "/forum/" + boardName + "/\">" + boardName + "</a></h1><hr>\r\n";
 			rtrn += "<p>" + StringEscapeUtils.escapeHtml4(board.getDescription()) + "</p>\r\n</div><br>\r\n";
 		}
-		rtrn += "<br><string>Created on: " + StringUtil.getCacheTime(this.dateCreated) + "</string>\r\n";
+		rtrn += "<br><string>Created on: " + StringUtils.getCacheTime(this.dateCreated) + "</string>\r\n";
 		rtrn += "</body>\r\n</html>";
 		return rtrn;
 	}

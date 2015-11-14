@@ -1,12 +1,15 @@
 package com.gmail.br45entei.server;
 
 import com.gmail.br45entei.JavaWebServer;
+import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
+import com.gmail.br45entei.data.HttpDigestAuthorization.BasicAuthorizationResult;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FormURLEncodedData;
 import com.gmail.br45entei.server.data.MultipartFormData;
 import com.gmail.br45entei.util.AddressUtil;
 import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -14,7 +17,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.Socket;
-import java.util.Base64;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.concurrent.CancellationException;
@@ -45,6 +48,7 @@ public class HTTPClientRequest {
 	public String							upgrade					= "";
 	
 	public final HashMap<String, String>	headers					= new HashMap<>();
+	public final ArrayList<String>			cookies					= new ArrayList<>();
 	
 	public boolean							isProxyRequest			= false;
 	
@@ -60,7 +64,6 @@ public class HTTPClientRequest {
 	public String							acceptEncoding			= "";
 	public String							acceptLanguage			= "";
 	public String							from					= "";
-	public String							cookie					= "";
 	public String							range					= "";
 	public String							authorization			= "";
 	public String							ifModifiedSince			= "";
@@ -247,6 +250,8 @@ public class HTTPClientRequest {
 	}
 	
 	protected final void parseRequest() throws IOException, NumberFormatException, UnsupportedEncodingException, OutOfMemoryError, CancellationException {
+		final String clientAddress = this.status.getClientAddress();
+		final String clientIP = AddressUtil.getClientAddressNoPort(clientAddress);
 		int i = 0;
 		while(!this.status.isCancelled()) {
 			final String line = readLine(this.in, this.status);
@@ -319,7 +324,7 @@ public class HTTPClientRequest {
 						} else {
 							printlnDebug("\t\tpostRequestStr is too long to print here.");
 						}
-						File test = new File(JavaWebServer.rootDir, "test-" + StringUtil.getTime(System.currentTimeMillis(), false, true) + ".deleteme.log");
+						File test = new File(JavaWebServer.rootDir, "test-" + StringUtils.getTime(System.currentTimeMillis(), false, true) + ".deleteme.log");
 						FileOutputStream out = new FileOutputStream(test);
 						out.write(this.postRequestData);
 						out.flush();
@@ -328,16 +333,8 @@ public class HTTPClientRequest {
 					if(!this.isProxyRequest) {
 						if(this.contentType.toLowerCase().contains("multipart/form-data")) {
 							this.status.setStatus("Parsing client multipart/form-data...");
-							String clientResponse;
-							try {
-								clientResponse = new String(Base64.getDecoder().decode(this.authorization.replace("Basic", "").trim()));
-							} catch(IllegalArgumentException ignored) {
-								clientResponse = "";
-							}
-							String[] creds = clientResponse.split(":");
-							String clientUser = creds.length == 2 ? creds[0] : "";
-							String clientPass = creds.length == 2 ? creds[1] : "";
-							if(JavaWebServer.areCredentialsValidForAdministration(clientUser, clientPass)) {
+							final BasicAuthorizationResult authResult = JavaWebServer.authenticateBasic(this);
+							if(authResult.passed()) {//if(JavaWebServer.getOrCreateAuthForCurrentThread().authenticate(this.authorization, new String(this.postRequestData), this.protocol, this.host, clientIP, this.cookies).passed()) {
 								try {
 									this.multiPartFormData = new MultipartFormData(this.postRequestData, this.contentType, this.status, this);
 								} catch(IllegalArgumentException e) {
@@ -353,11 +350,27 @@ public class HTTPClientRequest {
 						this.status.setStatus("Parsing client POST data...");
 						this.formURLEncodedData = new FormURLEncodedData(this.postRequestData);
 					}
-				}
-				if(!this.isProxyRequest) {
-					this.postRequestData = new byte[0];
+				} else {
+					DisposableByteArrayOutputStream baos = new DisposableByteArrayOutputStream();
+					try {
+						byte[] buf = new byte[1024];
+						int read;
+						while((read = this.in.available()) > 0) {
+							read = this.in.read(buf);
+							baos.write(buf, 0, read);
+						}
+					} catch(Throwable ignored) {
+					}
+					this.postRequestData = baos.toByteArray();
+					baos.dispose();
+					baos.close();
+					baos = null;
 					System.gc();
 				}
+				/*if(!this.isProxyRequest) {
+					this.postRequestData = new byte[0];
+					System.gc();
+				}*/
 				break;
 			}
 			if(i == 0 /*&& (line.toUpperCase().startsWith("OPTIONS") || line.toUpperCase().startsWith("GET") || line.toUpperCase().startsWith("HEAD") || line.toUpperCase().startsWith("POST") || line.toUpperCase().startsWith("PUT") || line.toUpperCase().startsWith("DELETE") || line.toUpperCase().startsWith("TRACE") || line.toUpperCase().startsWith("CONNECT") || line.toUpperCase().startsWith("BREW"))*/) {
@@ -398,7 +411,7 @@ public class HTTPClientRequest {
 							String[] entry = arg.split("=");
 							if(entry != null) {
 								if(entry.length > 2) {
-									this.requestArguments.put(entry[0], StringUtil.stringArrayToString(entry, '=', 1));
+									this.requestArguments.put(entry[0], StringUtils.stringArrayToString(entry, '=', 1));
 								} else if(entry.length == 2) {
 									this.requestArguments.put(entry[0], entry[1]);
 								} else if(entry.length == 1) {
@@ -422,13 +435,16 @@ public class HTTPClientRequest {
 					String[] split = line.split(Pattern.quote(":"));
 					if(split.length >= 2) {
 						final String hName = split[0];
-						final String hValue;
-						if(split.length > 2) {
-							hValue = line.substring(hName.length() + 1);
+						final String hValue = StringUtil.stringArrayToString(split, ':', 1);
+						if(hName.equalsIgnoreCase("Cookie")) {
+							PrintUtil.printlnNow("Cookie received: " + hValue);
+							for(String cookie : hValue.split(Pattern.quote(";"))) {
+								this.cookies.add(cookie);
+								PrintUtil.printlnNow("Cookie sub data: " + cookie);
+							}
 						} else {
-							hValue = split[1];
+							this.headers.put(hName, hValue.trim());
 						}
-						this.headers.put(hName, hValue.trim());
 					}
 				}
 				if(line.toLowerCase().startsWith("upgrade: ")) {
@@ -468,8 +484,7 @@ public class HTTPClientRequest {
 					this.acceptLanguage = line.substring("Accept-Language:".length()).trim();
 				} else if(line.toLowerCase().startsWith("from: ")) {
 					this.from = line.substring("From:".length()).trim();
-				} else if(line.toLowerCase().startsWith("cookie: ")) {
-					this.cookie = line.substring("Cookie:".length()).trim();
+				} else if(line.toLowerCase().startsWith("cookie: ")) {//Do nothing
 				} else if(line.toLowerCase().startsWith("range: ")) {
 					this.range = line.substring("Range:".length()).trim();
 				} else if(line.toLowerCase().startsWith("authorization: ")) {
@@ -491,9 +506,9 @@ public class HTTPClientRequest {
 					this.xForwardedFor = this.forwardedHeader.clientIP;
 					this.via = this.forwardedHeader.proxyIP;
 					
-					String viaKey = StringUtil.getStringInList(this.headers.keySet(), "via");
+					String viaKey = StringUtils.getStringInList(this.headers.keySet(), "via");
 					this.headers.put(viaKey != null ? viaKey : "via", this.via);
-					String xForwardedForKey = StringUtil.getStringInList(this.headers.keySet(), "x-forwarded-for");
+					String xForwardedForKey = StringUtils.getStringInList(this.headers.keySet(), "x-forwarded-for");
 					this.headers.put(xForwardedForKey != null ? xForwardedForKey : "x-forwarded-for", this.xForwardedFor);
 				} else if(line.toLowerCase().startsWith("proxy-connection: ")) {
 					this.proxyConnection = line.substring("Proxy-Connection:".length()).trim();
@@ -581,7 +596,7 @@ public class HTTPClientRequest {
 					String[] splitEquals = property.split(Pattern.quote("="));
 					if(splitEquals.length >= 2) {
 						final String pname = splitEquals[0];
-						final String pvalue = StringUtil.stringArrayToString(splitEquals, '=', 1);
+						final String pvalue = StringUtils.stringArrayToString(splitEquals, '=', 1);
 						if(pname.trim().equalsIgnoreCase("for")) {
 							clientIP = pvalue.trim();
 						} else if(pname.trim().equalsIgnoreCase("proto")) {

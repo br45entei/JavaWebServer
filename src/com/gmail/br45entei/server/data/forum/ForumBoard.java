@@ -5,7 +5,7 @@ import com.gmail.br45entei.server.data.DisposableUUIDData;
 import com.gmail.br45entei.server.data.HTMLParsableData;
 import com.gmail.br45entei.server.data.SavableData;
 import com.gmail.br45entei.util.PrintUtil;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -108,7 +108,7 @@ public class ForumBoard implements DisposableUUIDData, SavableData, HTMLParsable
 		if(uuid == null || uuid.isEmpty()) {
 			return null;
 		}
-		if(StringUtil.isStrUUID(uuid)) {
+		if(StringUtils.isStrUUID(uuid)) {
 			return getForumTopicFromUUID(UUID.fromString(uuid));
 		}
 		return null;
@@ -205,7 +205,7 @@ public class ForumBoard implements DisposableUUIDData, SavableData, HTMLParsable
 			if(curTopicFolder.exists() && curTopicFolder.isDirectory()) {
 				File topicFile = new File(curTopicFolder, "topic.yml");
 				if(topicFile.exists() && topicFile.isFile()) {
-					if(StringUtil.isStrUUID(folderName)) {
+					if(StringUtils.isStrUUID(folderName)) {
 						UUID topicUUID = UUID.fromString(folderName);
 						ForumTopic topic = new ForumTopic(topicUUID, this);
 						this.addTopic(topic);

@@ -6,7 +6,7 @@ package com.gmail.br45entei.server.data;
 import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.util.FileUtil;
 import com.gmail.br45entei.util.LogUtils;
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -49,17 +49,17 @@ public class NaughtyClientData {
 				String[] entry = property.split(Pattern.quote("="));
 				if(entry.length >= 2) {
 					String pname = entry[0];
-					String pvalue = StringUtil.stringArrayToString(entry, '=', 1);
+					String pvalue = StringUtils.stringArrayToString(entry, '=', 1);
 					if(pname.equalsIgnoreCase("ipAddress")) {
 						this.clientIp = pvalue;
 					} else if(pname.equalsIgnoreCase("bannedUntil")) {
-						if(StringUtil.isStrLong(pvalue)) {
+						if(StringUtils.isStrLong(pvalue)) {
 							this.inSinBinUntil = Long.valueOf(pvalue).longValue();
 						}
 					} else if(pname.equalsIgnoreCase("banReason")) {
 						this.banReason = pvalue;
 					} else if(pname.equalsIgnoreCase("warnCount")) {
-						if(StringUtil.isStrLong(pvalue)) {
+						if(StringUtils.isStrLong(pvalue)) {
 							this.warnCount = Long.valueOf(pvalue).intValue();
 						}
 					}

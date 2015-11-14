@@ -3,7 +3,7 @@
  */
 package com.gmail.br45entei.server.data;
 
-import com.gmail.br45entei.util.StringUtil;
+import com.gmail.br45entei.util.StringUtils;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
@@ -36,7 +36,7 @@ public class FormURLEncodedData {
 				String value = "";
 				if(entry.length > 2) {
 					key = entry[0];
-					value = StringUtil.stringArrayToString(entry, '=', 1);
+					value = StringUtils.stringArrayToString(entry, '=', 1);
 				} else if(entry.length == 2) {
 					key = entry[0];
 					value = entry[1];
