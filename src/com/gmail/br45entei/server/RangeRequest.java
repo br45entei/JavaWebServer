@@ -114,9 +114,13 @@ public class RangeRequest {
 				info.currentWriteAmount = 0L;
 			}
 			if(info.isCancelled) {
+				buffer = null;
+				System.gc();
 				return written;
 			}
 		}
+		buffer = null;
+		System.gc();
 		return written;
 	}
 	

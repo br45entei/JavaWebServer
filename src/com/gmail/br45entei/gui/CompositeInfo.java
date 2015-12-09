@@ -147,7 +147,7 @@ public final class CompositeInfo extends Composite {
 		String labelStr;
 		if(this.status instanceof ClientInfo) {
 			ClientInfo info = (ClientInfo) this.status;
-			labelStr = "Client Info: " + info.getClientAddress() + "; Host used: \"" + info.host + "\"; " + info.requestedFile.toString() + "; Data: " + Functions.humanReadableByteCount(info.requestedFile.bytesTransfered, true, 2) + " / " + Functions.humanReadableByteCount(new Long(info.requestedFile.contentLength).longValue(), true, 2) + "; Data Transfer Rate: " + Functions.humanReadableByteCount(info.requestedFile.lastWriteAmount * 5L, true, 2) + "/sec";
+			labelStr = "Client Info: " + info.getClientAddress() + "; Host used: \"" + info.clientRequest.host + "\"; " + info.requestedFile.toString() + "; Data: " + Functions.humanReadableByteCount(info.requestedFile.bytesTransfered, true, 2) + " / " + Functions.humanReadableByteCount(new Long(info.requestedFile.contentLength).longValue(), true, 2) + "; Data Transfer Rate: " + Functions.humanReadableByteCount(info.requestedFile.lastWriteAmount * 5L, true, 2) + "/sec";
 			info.requestedFile.updateTime = 1000L / 5L;
 		} else {
 			labelStr = "Client Info: " + this.status.getClientAddress() + "; Data: " + Functions.humanReadableByteCount(this.status.getCount(), true, 2) + " / " + Functions.humanReadableByteCount(new Long(this.status.getContentLength()).longValue(), true, 2) + " uploaded;";

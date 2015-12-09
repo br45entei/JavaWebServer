@@ -19,47 +19,11 @@ public final class ClientInfo implements ClientStatus {
 	private final long				startTime;
 	/** The file that the client is requesting */
 	public final FileInfo			requestedFile;
+	
+	public final HTTPClientRequest	clientRequest;
 	/** This connection's Universally Unique Identifier */
 	public final UUID				uuid;
 	
-	//TODO Remove the header information below, as it is already stored in HTTPClientRequest
-	
-	/** The HTTP protocol request that the client sent(i.e. GET, HEAD, POST,
-	 * etc) */
-	public final String				protocolRequest;
-	/** The domain or host used to connect to this server(e.g.
-	 * www.example.com or 192.168.0.1) */
-	public final String				host;
-	/** HTTP header sent by the client */
-	public final String				connectionSetting;
-	/** HTTP header sent by the client */
-	public final String				cacheControl;
-	/** HTTP header sent by the client */
-	public final String				accept;
-	/** HTTP header sent by the client */
-	public final String				userAgent;
-	/** HTTP header sent by the client */
-	public final String				dnt;
-	/** HTTP header sent by the client */
-	public final String				referrerLink;
-	/** HTTP header sent by the client */
-	public final String				acceptEncoding;
-	/** HTTP header sent by the client */
-	public final String				acceptLanguage;
-	/** HTTP header sent by the client */
-	public final String				from;
-	/** HTTP header sent by the client */
-	public final ArrayList<String>	cookies;
-	/** HTTP header sent by the client */
-	public final String				range;
-	/** HTTP header sent by the client */
-	public final String				authorization;
-	/** HTTP header sent by the client */
-	public final String				ifModifiedSince;
-	/** HTTP header sent by the client */
-	public final String				ifRange;
-	/** HTTP header sent by the client */
-	public final String				ifNoneMatch;
 	private long					lastWriteTime	= System.currentTimeMillis();
 	
 	/** @return The last time data was written to the client, in milliseconds */
@@ -77,47 +41,13 @@ public final class ClientInfo implements ClientStatus {
 	
 	/** @param client The client
 	 * @param requestedFile The file that the client is requesting
-	 * @param protocolRequest The HTTP protocol request that the client
-	 *            sent(i.e. GET, HEAD, POST, etc)
-	 * @param host The domain or host used to connect to this server(e.g.
-	 *            www.example.com, 192.168.0.1, [::1], etc.)
-	 * @param connectionSetting HTTP header sent by the client
-	 * @param cacheControl HTTP header sent by the client
-	 * @param accept HTTP header sent by the client
-	 * @param userAgent HTTP header sent by the client
-	 * @param dnt HTTP header sent by the client
-	 * @param referrerLink HTTP header sent by the client
-	 * @param acceptEncoding HTTP header sent by the client
-	 * @param acceptLanguage HTTP header sent by the client
-	 * @param from HTTP header sent by the client
-	 * @param cookie HTTP header sent by the client
-	 * @param range HTTP header sent by the client
-	 * @param authorization HTTP header sent by the client
-	 * @param ifModifiedSince A date header sent by the client used to
-	 *            determine if the file has been modified since that date
-	 * @param ifNoneMatch HTTP header sent by the client */
-	public ClientInfo(Socket client, FileInfo requestedFile, String protocolRequest, String host, String connectionSetting, String cacheControl, String accept, String userAgent, String dnt, String referrerLink, String acceptEncoding, String acceptLanguage, String from, ArrayList<String> cookies, String range, String authorization, String ifModifiedSince, String ifNoneMatch, String ifRange) {
+	 * @param request The request sent by the client */
+	public ClientInfo(Socket client, FileInfo requestedFile, HTTPClientRequest request) {
 		this.client = client;
 		this.startTime = System.currentTimeMillis();
 		this.requestedFile = requestedFile;
+		this.clientRequest = request;
 		this.uuid = UUID.randomUUID();
-		this.protocolRequest = protocolRequest;
-		this.host = host;
-		this.connectionSetting = connectionSetting;
-		this.cacheControl = cacheControl;
-		this.accept = accept;
-		this.userAgent = userAgent;
-		this.dnt = dnt;
-		this.referrerLink = referrerLink;
-		this.acceptEncoding = acceptEncoding;
-		this.acceptLanguage = acceptLanguage;
-		this.from = from;
-		this.cookies = new ArrayList<>(cookies);
-		this.range = range;
-		this.authorization = authorization;
-		this.ifModifiedSince = ifModifiedSince;
-		this.ifNoneMatch = ifNoneMatch;
-		this.ifRange = ifRange;
 	}
 	
 	@Override
@@ -222,9 +152,9 @@ public final class ClientInfo implements ClientStatus {
 	@Override
 	public final String toString() {
 		try {
-			return "\tClient: " + this.client.toString() + "\r\n\tRequest: \"" + this.protocolRequest + "\"\r\n\tRequested File: " + this.requestedFile.filePath;
+			return "\tClient: " + this.client.toString() + "\r\n\tRequest: \"" + this.clientRequest.protocolRequest + "\"\r\n\tRequested File: " + this.requestedFile.filePath;
 		} catch(Throwable e) {
-			return "\tClient: null\r\n\tRequest: \"" + this.protocolRequest + "\"\r\n\tRequested File: " + this.requestedFile.filePath;
+			return "\tClient: null\r\n\tRequest: \"" + this.clientRequest.protocolRequest + "\"\r\n\tRequested File: " + this.requestedFile.filePath;
 		}
 	}
 	

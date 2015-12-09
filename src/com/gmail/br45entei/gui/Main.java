@@ -12,10 +12,8 @@ import com.gmail.br45entei.util.LogUtils;
 import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.StringUtils;
 
-import java.security.Security;
 import java.util.ArrayList;
 
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.ScrolledComposite;
 import org.eclipse.swt.events.SelectionAdapter;
@@ -68,10 +66,6 @@ public class Main {
 	private ScrolledComposite	proxyScrollArea;
 	private Composite			activeProxyConnections;
 	private Label				lblNoProxyConnections;
-	
-	static {
-		Security.addProvider(new BouncyCastleProvider());
-	}
 	
 	public final Thread getThread() {
 		return this.currentThread;

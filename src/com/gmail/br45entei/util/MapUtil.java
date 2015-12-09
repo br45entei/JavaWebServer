@@ -47,7 +47,7 @@ public class MapUtil {
 		
 		if(file.exists()) {
 			String unAliasedPath = (newPath.startsWith("/") ? "" : "/") + newPath;
-			return StringUtils.encodeHTML(httpProtocol + clientInfo.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
+			return StringUtils.encodeHTML(httpProtocol + clientInfo.clientRequest.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
 		}
 		return null;
 	}

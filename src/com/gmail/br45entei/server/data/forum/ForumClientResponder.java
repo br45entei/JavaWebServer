@@ -37,11 +37,11 @@ public final class ForumClientResponder {
 			return false;
 		}
 		final String clientAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
-		if(request.protocol.equalsIgnoreCase("GET") || request.protocol.equalsIgnoreCase("HEAD") || request.protocol.equalsIgnoreCase("OPTIONS")) {
+		if(request.method.equalsIgnoreCase("GET") || request.method.equalsIgnoreCase("HEAD") || request.method.equalsIgnoreCase("OPTIONS")) {
 			ForumData forum = ForumData.getForumDataFromRequestedFilePath(request.requestedFilePath);
 			if(forum == null || !forum.isDomainAllowed(domainDirectory)) {
 				return false;
-			} else if(request.protocol.equalsIgnoreCase("OPTIONS")) {
+			} else if(request.method.equalsIgnoreCase("OPTIONS")) {
 				response.setStatusCode(HTTP_200);
 				response.setHeader("Date", StringUtils.getCurrentCacheTime());
 				response.setHeader("Allow", "GET,HEAD,POST,OPTIONS");
@@ -139,7 +139,7 @@ public final class ForumClientResponder {
 							OutputStream outStream = s.getOutputStream();
 							PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
 							out.println("HTTP/1.1 200 OK");
-							JavaWebServer.sendFileToClient(out, outStream, requestedFile, request.protocol, clientAddress, domainDirectory.getNetworkMTU(), false);
+							JavaWebServer.sendFileToClient(out, outStream, requestedFile, request.method, clientAddress, domainDirectory.getNetworkMTU(), false);
 							outStream.flush();
 							outStream.close();
 							s.close();
@@ -237,7 +237,7 @@ public final class ForumClientResponder {
 			s.close();
 			return true;*/
 		}
-		response.sendToClient(s, request.protocol.equalsIgnoreCase("GET"));
+		response.sendToClient(s, request.method.equalsIgnoreCase("GET"));
 		s.close();
 		return true;
 	}

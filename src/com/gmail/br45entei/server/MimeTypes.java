@@ -1,6 +1,3 @@
-/**
- * 
- */
 package com.gmail.br45entei.server;
 
 import com.gmail.br45entei.JavaWebServer;
@@ -229,8 +226,9 @@ public class MimeTypes {
 		MIME_Types.put(".$m3u", "audio/mpegurl");
 		MIME_Types.put(".m3u", "audio/x-mpegurl");
 		MIME_Types.put(".$m4a", "audio/mpeg");
-		MIME_Types.put(".m4a", "audio/mp4a-latm");//"audio/x-aac");//"audio/x-m4a");//"audio/mp4");//"audio/m4a");//"video/mp4");//"audio/mpeg"); ...Sigh, nothing works right in google chrome, so mp4a-latm it is then.
+		MIME_Types.put(".m4a", "audio/mp4");//"audio/mp4a-latm");//"audio/x-aac");//"audio/x-m4a");//"audio/m4a");//"video/mp4");//"audio/mpeg"); ...Sigh, nothing works right in google chrome, so mp4a-latm it is then. !!! Update: audio/mp4 works in chrome now! Yays. VLC Still uses "audio/x-m4a", so I hardcoded a fix for that.
 		MIME_Types.put(".m4b", "video/mp4");
+		MIME_Types.put(".m4p", "audio/mp4");
 		MIME_Types.put(".m4v", "video/mp4");
 		MIME_Types.put(".maker", "application/x-maker");
 		MIME_Types.put(".man", "application/x-troff-man");

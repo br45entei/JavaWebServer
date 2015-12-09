@@ -1,6 +1,7 @@
 package com.gmail.br45entei.util;
 
 import com.gmail.br45entei.JavaWebServer;
+import com.gmail.br45entei.server.data.DisposableByteArrayOutputStream;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -13,6 +14,7 @@ import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -236,6 +238,28 @@ public strictfp class StringUtils {
 	/** @return The current time in cache format */
 	public static final String getCurrentCacheTime() {
 		return getCacheValidatorTimeFormat().format(new Date());
+	}
+	
+	public static final long getLastModified(File file) {
+		if(!file.exists()) {
+			return 0L;
+		}
+		try {
+			return StringUtils.getCacheValidatorTimeFormat().parse(StringUtils.getCacheTime(file.lastModified())).getTime();
+		} catch(ParseException e) {
+			return file.lastModified();
+		}
+	}
+	
+	public static final byte[] compressBytes(byte[] bytes) throws IOException {
+		DisposableByteArrayOutputStream out = new DisposableByteArrayOutputStream();
+		GZIPOutputStream gzip = new GZIPOutputStream(out);
+		gzip.write(bytes);
+		gzip.flush();
+		gzip.close();
+		byte[] compressedBytes = out.toByteArray();
+		out.dispose();
+		return compressedBytes;
 	}
 	
 	public static final byte[] compressString(String str, String charsetName) throws IOException {

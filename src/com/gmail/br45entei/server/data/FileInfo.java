@@ -21,24 +21,24 @@ public final class FileInfo {
 	public final DomainDirectory	domainDirectory;
 	
 	/** The rate at which the data transfer speed is calculated */
-	public long						updateTime			= 1000L;
+	public volatile long			updateTime			= 1000L;
 	
 	/** Whether or not this file request is cancelled */
-	public boolean					isCancelled			= false;
+	public volatile boolean			isCancelled			= false;
 	/** Whether or not this file request is paused */
-	public boolean					isPaused			= false;
+	public volatile boolean			isPaused			= false;
 	
 	/** The last time any data was written to an output stream */
-	public long						lastWriteTime		= 0L;
+	public volatile long			lastWriteTime		= 0L;
 	/** The current byte amount being written to an output stream */
-	public long						currentWriteAmount	= 0L;
+	public volatile long			currentWriteAmount	= 0L;
 	/** The last amount of bytes being written to an output stream */
-	public long						lastWriteAmount		= 0L;
+	public volatile long			lastWriteAmount		= 0L;
 	
 	/** The amount of bytes transferred to the output stream */
-	public long						bytesTransfered		= 0L;
+	public volatile long			bytesTransfered		= 0L;
 	/** The amount of bytes that this file is composed of */
-	public String					contentLength;
+	public volatile String			contentLength;
 	/** This file's mime type */
 	public final String				mimeType;
 	/** This file's name */
@@ -50,7 +50,7 @@ public final class FileInfo {
 	/** The last time this file was modified(in milliseconds) */
 	public final long				lastModifiedLong;
 	/** Whether or not this file is currently being written to */
-	public boolean					isBeingWrittenTo	= false;
+	public volatile boolean			isBeingWrittenTo	= false;
 	
 	/** @param file The file that this instantiation represents
 	 * @param domainDirectory The DomainDirectory that was used to connect

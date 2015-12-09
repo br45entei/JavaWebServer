@@ -96,4 +96,14 @@ public class NaughtyClientData {
 		return true;
 	}
 	
+	/** Pardons this banned client */
+	public void dispose() {
+		JavaWebServer.sinBin.remove(this);
+		this.deleteSaveFile();
+		this.clientIp = null;
+		this.inSinBinUntil = -1L;
+		this.banReason = "";
+		this.warnCount = 0;
+	}
+	
 }

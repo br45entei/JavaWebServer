@@ -42,7 +42,7 @@ public class ResponseUtil {
 				+ "\t\t<string>The file \"" + request.requestedFilePath + "\" does not exist.</string><br>\r\n"//
 				+ "\t\t<string>" + pageHeader + "</string>\r\n"//
 				+ "\t</body>\r\n</html>");
-		response.sendToClient(s, request.protocol.equalsIgnoreCase("GET"));
+		response.sendToClient(s, request.method.equalsIgnoreCase("GET"));
 		JavaWebServer.connectedClients.remove(clientInfo);
 	}
 	
@@ -97,7 +97,7 @@ public class ResponseUtil {
 				+ "\t\t<string>Alternately, if you are a server administrator and this domain is not improperly configured, <a href=\"http://" + request.hostNoPort + ":" + JavaWebServer.admin_listen_port + "/?page=createDomain&domainName=" + request.host + "\" target=\"_blank\">log in</a> to create a new domain with the name \"" + request.host + "\" (thereby preventing this page from showing).</string>\r\n"//
 				+ "\t\t<string>" + pageHeader + "</string>\r\n"//
 				+ "\t</body>\r\n</html>");
-		response.sendToClient(s, request.protocol.equalsIgnoreCase("GET"));
+		response.sendToClient(s, request.method.equalsIgnoreCase("GET"));
 		JavaWebServer.println("\t\t*** A client has incorrectly connected to this server thinking it has connected to \"" + request.host + "\".");
 		if(domainDirectory != null) {
 			domainDirectory.delete();//It didn't exist before this bad request occurred, so why keep it?

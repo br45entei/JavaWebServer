@@ -1,8 +1,8 @@
 package com.gmail.br45entei.server;
 
 import com.gmail.br45entei.JavaWebServer;
+import com.gmail.br45entei.data.BasicAuthorizationResult;
 import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
-import com.gmail.br45entei.data.HttpDigestAuthorization.BasicAuthorizationResult;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FormURLEncodedData;
 import com.gmail.br45entei.server.data.MultipartFormData;
@@ -40,7 +40,7 @@ public class HTTPClientRequest {
 	
 	public String							protocolRequest			= "";
 	
-	public String							protocol				= "";
+	public String							method					= "";
 	public String							requestedFilePath		= "";
 	public String							requestedServerAddress	= "";
 	public String							version					= "";
@@ -52,6 +52,7 @@ public class HTTPClientRequest {
 	
 	public boolean							isProxyRequest			= false;
 	
+	public String							protocol				= "";
 	public String							host					= "";
 	public String							hostNoPort				= "";
 	public String							http2Host				= "";
@@ -251,7 +252,7 @@ public class HTTPClientRequest {
 	
 	protected final void parseRequest() throws IOException, NumberFormatException, UnsupportedEncodingException, OutOfMemoryError, CancellationException {
 		final String clientAddress = this.status.getClientAddress();
-		final String clientIP = AddressUtil.getClientAddressNoPort(clientAddress);
+		//final String clientIP = AddressUtil.getClientAddressNoPort(clientAddress);
 		int i = 0;
 		while(!this.status.isCancelled()) {
 			final String line = readLine(this.in, this.status);
@@ -274,7 +275,7 @@ public class HTTPClientRequest {
 					this.postRequestData = new byte[0];
 					break;
 				}
-				if(this.protocol.equalsIgnoreCase("POST") && !this.contentLength.isEmpty()) {
+				if(this.method.equalsIgnoreCase("POST") && !this.contentLength.isEmpty()) {
 					this.status.setStatus("Receiving client POST data...");
 					this.isPostRequest = true;
 					final int contentLength = new Long(this.contentLength).intValue();
@@ -330,10 +331,13 @@ public class HTTPClientRequest {
 						out.flush();
 						out.close();
 					}
-					if(!this.isProxyRequest) {
+					if(!this.isProxyRequest) {//We don't want to mess with the proxy requests' post data.
 						if(this.contentType.toLowerCase().contains("multipart/form-data")) {
 							this.status.setStatus("Parsing client multipart/form-data...");
-							final BasicAuthorizationResult authResult = JavaWebServer.authenticateBasic(this);
+							BasicAuthorizationResult authResult = JavaWebServer.authenticateBasicForServerAdministration(this, JavaWebServer.useCookieAuthentication);
+							if(!authResult.passed() && JavaWebServer.useCookieAuthentication) {
+								authResult = JavaWebServer.authenticateBasicForServerAdministration(this, false);
+							}
 							if(authResult.passed()) {//if(JavaWebServer.getOrCreateAuthForCurrentThread().authenticate(this.authorization, new String(this.postRequestData), this.protocol, this.host, clientIP, this.cookies).passed()) {
 								try {
 									this.multiPartFormData = new MultipartFormData(this.postRequestData, this.contentType, this.status, this);
@@ -352,8 +356,8 @@ public class HTTPClientRequest {
 					}
 				} else {
 					DisposableByteArrayOutputStream baos = new DisposableByteArrayOutputStream();
+					byte[] buf = new byte[1024];
 					try {
-						byte[] buf = new byte[1024];
 						int read;
 						while((read = this.in.available()) > 0) {
 							read = this.in.read(buf);
@@ -361,6 +365,7 @@ public class HTTPClientRequest {
 						}
 					} catch(Throwable ignored) {
 					}
+					buf = null;
 					this.postRequestData = baos.toByteArray();
 					baos.dispose();
 					baos.close();
@@ -377,13 +382,14 @@ public class HTTPClientRequest {
 				this.protocolRequest = line;
 				String[] split = this.protocolRequest.split("\\s");
 				if(split.length == 3) {
-					this.protocol = split[0];
+					this.method = split[0];
 					this.requestedFilePath = split[1];
 					this.version = split[2];
 					println("\t--- Client request: " + this.protocolRequest);
 					
 					if(this.requestedFilePath.startsWith("http://") || this.requestedFilePath.startsWith("https://")) {
-						int startIndex = this.requestedFilePath.startsWith("http://") ? 7 : 8;
+						final int startIndex = this.requestedFilePath.startsWith("http://") ? 7 : 8;
+						this.protocol = (startIndex == 7 ? "http://" : "https://");
 						
 						int endIndex = this.requestedFilePath.replace("//", "--").indexOf("/");
 						endIndex = endIndex == -1 ? this.requestedFilePath.length() : endIndex;
@@ -396,8 +402,9 @@ public class HTTPClientRequest {
 							this.requestedServerAddress = this.http2Host;
 							printlnDebug("requestedServerAddress: " + this.requestedServerAddress);
 						}
-					} else if(this.protocol.equalsIgnoreCase("CONNECT")) {
+					} else if(this.method.equalsIgnoreCase("CONNECT")) {
 						this.requestedServerAddress = split[1];
+						this.protocol = (this.requestedFilePath.startsWith("http://") ? "http://" : "https://");
 						this.isProxyRequest = true;
 					}
 					
@@ -437,10 +444,10 @@ public class HTTPClientRequest {
 						final String hName = split[0];
 						final String hValue = StringUtil.stringArrayToString(split, ':', 1);
 						if(hName.equalsIgnoreCase("Cookie")) {
-							PrintUtil.printlnNow("Cookie received: " + hValue);
+							JavaWebServer.printlnDebug("Cookie received: " + hValue);
 							for(String cookie : hValue.split(Pattern.quote(";"))) {
-								this.cookies.add(cookie);
-								PrintUtil.printlnNow("Cookie sub data: " + cookie);
+								this.cookies.add(cookie.trim());
+								JavaWebServer.printlnDebug("Cookie sub data: " + cookie);
 							}
 						} else {
 							this.headers.put(hName, hValue.trim());
@@ -455,7 +462,7 @@ public class HTTPClientRequest {
 					if(this.host.endsWith(":80") && this.host.length() > 3) {
 						this.host = this.host.substring(0, this.host.length() - ":80".length());
 					}
-					if(!this.protocol.equalsIgnoreCase("CONNECT") && !this.isProxyRequest) {
+					if(!this.method.equalsIgnoreCase("CONNECT") && !this.isProxyRequest) {
 						if(!this.version.trim().toUpperCase().startsWith("HTTP/2.")) {
 							if(!this.host.isEmpty() ? DomainDirectory.getDomainDirectoryFromDomainName(this.host) == null : false) {
 								this.requestedServerAddress = this.host;

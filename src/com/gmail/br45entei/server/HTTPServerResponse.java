@@ -24,6 +24,7 @@ public class HTTPServerResponse {
 	protected final HashMap<String, String>	headers			= new HashMap<>();
 	protected String						response		= "";
 	protected FileInfo						responseFile	= null;
+	protected byte[]						responseData	= null;
 	
 	protected DomainDirectory				domainDirectory	= null;
 	
@@ -73,6 +74,10 @@ public class HTTPServerResponse {
 	}
 	
 	public final HTTPServerResponse setHeader(String header, String value) {
+		if(value == null || value.isEmpty()) {
+			this.headers.remove(header);
+			return this;
+		}
 		this.headers.put(this.getHeaderKey(header.replace(": ", "")), value);
 		if(header.equalsIgnoreCase("connection") && value.equalsIgnoreCase("close")) {
 			this.headers.remove(this.getHeaderKey("Keep-Alive"));
@@ -86,6 +91,13 @@ public class HTTPServerResponse {
 	
 	public final HTTPServerResponse clearHeaders() {
 		this.headers.clear();
+		return this;
+	}
+	
+	public final HTTPServerResponse setResponse(byte[] data) {
+		this.responseData = data;
+		this.response = null;
+		this.responseFile = null;
 		return this;
 	}
 	
@@ -200,7 +212,34 @@ public class HTTPServerResponse {
 			}
 		}
 		if(this.response == null && this.responseFile == null) {
-			pr.println("");
+			if(this.responseData != null) {
+				if((this.domainDirectory == null ? true : this.domainDirectory.getEnableGZipCompression()) && this.useGZip) {
+					pr.println("Content-Encoding: gzip");
+					byte[] r = StringUtils.compressBytes(this.responseData);
+					pr.println("Content-Length: " + r.length);
+					pr.println("");
+					this.markWriteTime();
+					if(sendResponse) {
+						//outStream.write(r);
+						for(int i = 0; i < r.length; i++) {
+							outStream.write(r[i]);
+							this.markWriteTime();
+						}
+					}
+				} else {
+					pr.println("Content-Length: " + this.responseData.length);
+					pr.println("");
+					pr.flush();
+					this.markWriteTime();
+					if(sendResponse) {
+						outStream.write(this.responseData);
+						outStream.flush();
+					}
+				}
+			} else {
+				pr.println("");
+				pr.flush();
+			}
 			this.markWriteTime();
 		} else {
 			if(this.responseFile == null) {

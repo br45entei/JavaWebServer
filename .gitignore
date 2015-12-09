@@ -60,3 +60,5 @@ WhoisTest.java
 resources/assets/src.zip
 MANIFEST.MF
 Export_to_jars.jardesc
+output.apic
+TODO.txt

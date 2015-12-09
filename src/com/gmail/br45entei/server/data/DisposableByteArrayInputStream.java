@@ -13,6 +13,10 @@ public class DisposableByteArrayInputStream extends ByteArrayInputStream {
 		super(buf, offset, length);
 	}
 	
+	public final void readToBuf(byte[] buf) {
+		this.read(buf, 0, buf.length);
+	}
+	
 	/** Wipes this ByteArrayInputStream's byte[] array and resets the counter */
 	public final void dispose() {
 		this.buf = new byte[0];

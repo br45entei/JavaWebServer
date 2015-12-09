@@ -1,12 +1,14 @@
 package com.gmail.br45entei;
 
 import com.gmail.br45entei.gui.Main;
+import com.gmail.br45entei.server.data.NaughtyClientData;
 import com.gmail.br45entei.server.data.RestrictedFile;
 import com.gmail.br45entei.swt.Functions;
 import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.CodeUtil.EnumOS;
 import com.gmail.br45entei.util.LogUtils;
 import com.gmail.br45entei.util.PrintUtil;
+import com.gmail.br45entei.util.StringUtil;
 import com.gmail.br45entei.util.StringUtils;
 
 import java.awt.Desktop;
@@ -28,8 +30,10 @@ import org.apache.commons.io.FilenameUtils;
 
 /** @author Brian_Entei */
 public class ConsoleThread extends Thread {
-	private boolean	isRunning			= false;
-	public boolean	exitCommandWasRun	= false;
+	private boolean						isRunning			= false;
+	public boolean						exitCommandWasRun	= false;
+	
+	protected volatile BufferedReader	br;
 	
 	@Override
 	public final synchronized void start() {
@@ -51,14 +55,14 @@ public class ConsoleThread extends Thread {
 			LogUtils.setConsoleMode(true);
 			return;
 		}
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+		this.br = new BufferedReader(new InputStreamReader(System.in));
 		LogUtils.setConsoleMode(true);
 		while(this.isRunning) {
 			try {
 				if(!this.isRunning) {
 					break;
 				}
-				handleInput(br, this);
+				handleInput(this.br, this);
 			} catch(Throwable e) {
 				e.printStackTrace();
 			}
@@ -81,7 +85,7 @@ public class ConsoleThread extends Thread {
 			return;
 		}
 		if(input.equalsIgnoreCase("\"help\" for help.") || input.equalsIgnoreCase("\"help\" for help") || input.equalsIgnoreCase("help for help.")) {
-			PrintUtil.printlnNow("Okay smartypants. You got me. I meant for you to type the word help, not all the words following the word \"Type\".");
+			PrintUtil.printlnNow("Okay smartypants. You got me. I meant for you to type the word help, not all the words following the word \"Type\".");//Trololololol
 			return;
 		}
 		String command = "";
@@ -108,7 +112,62 @@ public class ConsoleThread extends Thread {
 			LogUtils.getTertiaryOut().println(LogUtils.getCarriageReturnConsolePrefix() + input);
 		}
 		
-		if(command.equalsIgnoreCase("threadcount")) {
+		if(command.equalsIgnoreCase("sinbin")) {
+			if(args.length == 0) {
+				int numOfBannedIps = JavaWebServer.sinBin.size();
+				if(numOfBannedIps > 0) {
+					PrintUtil.println("Listing all blocked ips...");
+					int i = 1;
+					for(NaughtyClientData data : JavaWebServer.sinBin) {
+						if(data != null && data.isBanned()) {
+							PrintUtil.println("==[" + i + "]: IP: \"" + data.clientIp + "\"; Banned until: \"" + StringUtil.getElapsedTime(data.inSinBinUntil) + "\"; Reason: \"" + data.banReason + "\";");
+						}
+						i++;
+					}
+				} else {
+					PrintUtil.println("The Sin Bin is currently empty.");
+				}
+			} else if(args.length >= 2) {
+				if(args[0].equalsIgnoreCase("pardon")) {
+					String ipToPardon = StringUtil.stringArrayToString(args, ' ', 1);
+					NaughtyClientData data = JavaWebServer.getBannedClient(ipToPardon);
+					if(data != null) {
+						String ip = data.clientIp;
+						data.dispose();
+						PrintUtil.println("Ip address \"" + ip + "\" successfully pardoned.");
+					} else {
+						PrintUtil.println("That ip address is not in the Sin Bin. Type \"/sinbin\" to view its' contents.");
+					}
+				} else {
+					PrintUtil.println("Invalid flag \"" + args[0] + "\".");
+					PrintUtil.println("Usage: /sinbin or /sinbin [pardon|clear] [ip address...]");
+				}
+			} else if(args.length == 1) {
+				if(args[0].equalsIgnoreCase("clear")) {
+					int numOfBannedIps = JavaWebServer.sinBin.size();
+					if(numOfBannedIps > 0) {
+						PrintUtil.printlnNow("Are you sure you want to remove " + (numOfBannedIps == 1 ? "the remaining banned client" : "all " + numOfBannedIps + " banned clients") + "?");
+						String response = console.br.readLine().trim();
+						if(response.equalsIgnoreCase("yes") || response.equalsIgnoreCase("yeah") || response.equalsIgnoreCase("y")) {
+							PrintUtil.println("Pardoning all banned clients...");
+							for(NaughtyClientData data : JavaWebServer.sinBin) {
+								data.dispose();
+							}
+							PrintUtil.println("Pardoned " + (numOfBannedIps - JavaWebServer.sinBin.size()) + " of " + numOfBannedIps + " banned clients.");
+						} else {
+							PrintUtil.println("Operation canceled.");
+						}
+					} else {
+						PrintUtil.println("The Sin Bin is already empty.");
+					}
+				} else {
+					PrintUtil.println("Invalid flag \"" + args[0] + "\".");
+					PrintUtil.println("Usage: /sinbin or /sinbin [pardon|clear] [ip address...]");
+				}
+			} else {
+				PrintUtil.println("Usage: /sinbin or /sinbin [pardon|clear] [ip address...]");
+			}
+		} else if(command.equalsIgnoreCase("threadcount")) {
 			final Map<Thread, StackTraceElement[]> stackTraces = Thread.getAllStackTraces();
 			Set<Thread> threads = stackTraces.keySet();
 			PrintUtil.println("There " + (threads.size() == 1 ? "is" : "are") + " " + threads.size() + " thread" + (threads.size() == 1 ? "" : "s") + " running.");
