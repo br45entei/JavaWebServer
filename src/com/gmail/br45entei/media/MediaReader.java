@@ -181,12 +181,14 @@ public class MediaReader {
 		
 		public MediaArtwork(Artwork artwork) {
 			
-			this.width = artwork.getWidth();
-			this.height = artwork.getHeight();
+			int width = artwork.getWidth();
+			int height = artwork.getHeight();
 			this.mimeType = artwork.getMimeType();
 			final DisposableByteArrayOutputStream baos = new DisposableByteArrayOutputStream();
 			try {
 				BufferedImage bi = (BufferedImage) artwork.getImage();
+				width = width <= 0 ? bi.getWidth() : width;
+				height = height <= 0 ? bi.getHeight() : height;
 				ImageIO.write(bi, "png", baos);
 			} catch(Throwable e) {
 				System.err.print("Unable to read artwork data: ");
@@ -198,6 +200,8 @@ public class MediaReader {
 				baos.close();
 			} catch(Throwable ignored) {
 			}
+			this.width = width;
+			this.height = height;
 			this.albumArtwork = data;
 		}
 		
