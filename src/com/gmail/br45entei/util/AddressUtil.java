@@ -81,8 +81,9 @@ public class AddressUtil {
 		address = getClientAddress(address);
 		if(address.contains("]:")) {
 			return address.substring(0, address.lastIndexOf("]:")) + "]";//IPv6
-		}
-		if(address.contains(":")) {
+		} else if(address.length() - address.replace(":", "").length() >= 2) {//(See if there are multiple colons, then remove any brackets and re-add them)
+			address = "[" + address.replace("[", "").replace("]", "") + "]";
+		} else if(address.contains(":")) {
 			return address.substring(0, address.lastIndexOf(":"));//IPv4
 		}
 		return address;

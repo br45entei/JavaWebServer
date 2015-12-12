@@ -458,7 +458,7 @@ public class HTTPClientRequest {
 					this.upgrade = line.substring("Upgrade:".length()).trim();
 				} else if(line.toLowerCase().startsWith("host: ")) {
 					this.host = line.substring("host:".length()).trim();
-					this.hostNoPort = this.host.contains(":") ? this.host.substring(0, this.host.lastIndexOf(":")) : this.host;
+					this.hostNoPort = AddressUtil.getClientAddressNoPort(this.host);//this.host.contains(":") ? this.host.substring(0, this.host.lastIndexOf(":")) : this.host;
 					if(this.host.endsWith(":80") && this.host.length() > 3) {
 						this.host = this.host.substring(0, this.host.length() - ":80".length());
 					}
