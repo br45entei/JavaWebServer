@@ -115,7 +115,9 @@ import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_504;
 
 /** The main Server class */
 public final class JavaWebServer {//TODO Implement per-folder default files, like with domains(configurable on the folder administration page)
-	//TODO Go through and read all of the old TODO's and actually do them you lazy bum
+	//TODO Go through and read all of the old TODO's and actually do them you lazy bum <--
+	//TODO http://www.singular.co.nz/2008/07/finding-preferred-accept-encoding-header-in-csharp/
+	//TODO Implement all or most of the id3v2.3.0 media tags from http://id3.org/id3v2.3.0 and the relevant ones from https://code.google.com/p/mp4v2/wiki/iTunesMetadata
 	
 	protected final Thread											sslThread;
 	protected final Thread											adminThread;

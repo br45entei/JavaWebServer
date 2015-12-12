@@ -9,7 +9,14 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogManager;
+import java.util.logging.Logger;
 
 import javax.imageio.ImageIO;
 
@@ -38,10 +45,48 @@ public class MediaReader {
 		dumpErr = new PrintStream(dOut);
 	}
 	
+	private static final void disableLogger(Logger logger) {
+		if(logger == null) {
+			return;
+		}
+		try {
+			logger.setLevel(Level.OFF);
+			Handler[] handlers = logger.getHandlers();
+			if(handlers != null) {
+				for(Handler handler : new ArrayList<>(Arrays.asList(handlers))) {
+					if(handler == null) {
+						continue;
+					}
+					logger.removeHandler(handler);
+				}
+			}
+		} catch(SecurityException e) {
+			System.err.print("Unable to remove handler from logger \"" + logger.getName() + "\": ");
+			e.printStackTrace();
+		}
+	}
+	
+	private static final void disableLogging() {
+		LogManager lm = LogManager.getLogManager();
+		Enumeration<String> loggers = lm.getLoggerNames();
+		if(loggers != null) {
+			while(loggers.hasMoreElements()) {
+				String loggerName = loggers.nextElement();
+				if(loggerName != null) {
+					disableLogger(lm.getLogger(loggerName));
+				}
+			}
+		}
+		lm.reset();
+		Logger global = Logger.getGlobal();
+		disableLogger(global);
+	}
+	
 	public static final synchronized MediaInfo readFile(File file, boolean getArtwork) throws Throwable {
 		if(file == null || !file.isFile()) {
 			return null;
 		}
+		disableLogging();
 		AudioFile afile = AudioFileIO.read(file);
 		return afile == null ? null : new MediaInfo(afile, getArtwork);
 	}
@@ -51,6 +96,7 @@ public class MediaReader {
 			return null;
 		}
 		AudioFile afile = null;
+		disableLogging();
 		try {
 			afile = AudioFileIO.read(file);
 		} catch(CannotReadException e) {
@@ -166,6 +212,7 @@ public class MediaReader {
 		return rtrn + (!success && error != null ? ("\r\n<br><string>Reason:&nbsp;</string><pre>" + error + "</pre>") : (error != null ? "\r\n<hr><string>Operation completed with warnings:&nbsp;</string><pre>" + error + "</pre>" : ""));
 	}
 	
+	/** @author Brian_Entei */
 	public static final class MediaArtwork implements Closeable {
 		
 		private volatile boolean	isDisposed	= false;
