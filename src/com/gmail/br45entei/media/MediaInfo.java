@@ -133,7 +133,7 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 						tagText = tagText.substring(6, tagText.length() - 2).trim();
 					}
 					if(!tagText.isEmpty()) {
-						if(id.equals("TT2") || id.equals("TIT2") || id.equalsIgnoreCase("?nam")) {
+						if(id.equals("TT2") || id.equals("TIT2") || id.equalsIgnoreCase("©nam")) {
 							title = tagText;
 						} else if(id.equals("TRCK") || id.equalsIgnoreCase("trkn")) {
 							if(StringUtils.isStrLong(tagText)) {
@@ -151,15 +151,15 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							if(StringUtils.isStrLong(tagText)) {
 								trackTotal = Long.valueOf(tagText).intValue();
 							}
-						} else if(id.equals("TCOM") || id.equalsIgnoreCase("?wrt")) {
+						} else if(id.equals("TCOM") || id.equalsIgnoreCase("©wrt")) {
 							composer = tagText;
-						} else if(id.equals("TPE1") || id.equalsIgnoreCase("?ART")) {
+						} else if(id.equals("TPE1") || id.equalsIgnoreCase("©ART")) {
 							artist = tagText;
 						} else if(id.equals("TP1")) {
 							leadArtist = tagText;
 						} else if(id.equals("TOPE")) {
 							originalArtist = tagText;
-						} else if(id.equals("TAL") || id.equals("TALB") || id.equalsIgnoreCase("?alb")) {
+						} else if(id.equals("TAL") || id.equals("TALB") || id.equalsIgnoreCase("©alb")) {
 							album = tagText;
 						} else if(id.equals("aART")) {
 							albumArtist = tagText;
@@ -167,15 +167,15 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							conArtists.add(tagText);
 						} else if(id.equals("TDRC") || id.equals("TYER")) {//TDRC is used by VLC, but is not listed on http://id3.org/id3v2.3.0 for some reason
 							year = tagText;
-						} else if(id.equals("TCON") || id.equalsIgnoreCase("?gen") || id.equalsIgnoreCase("gnre")) {
+						} else if(id.equals("TCON") || id.equalsIgnoreCase("©gen") || id.equalsIgnoreCase("gnre")) {
 							if(id.equalsIgnoreCase("gnre")) {
 								genre += "[" + tagText + "]\r\n";
 							} else {
 								genre += tagText + "\r\n";
 							}
-						} else if(id.equalsIgnoreCase("?day")) {
+						} else if(id.equalsIgnoreCase("©day")) {
 							dateReleased = tagText;
-						} else if(id.equalsIgnoreCase("?cmt") || id.equals("COMM") || id.equalsIgnoreCase("com")) {
+						} else if(id.equalsIgnoreCase("©cmt") || id.equals("COMM") || id.equalsIgnoreCase("com")) {
 							comments += tagText + "\r\n";
 						} else if(id.equals("USLT")) {
 							lyrics = tagText;
@@ -195,9 +195,9 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							language = tagText;
 						} else if(id.equals("TPUB")) {
 							publisher = tagText;
-						} else if(id.equalsIgnoreCase("?too")) {
+						} else if(id.equalsIgnoreCase("©too")) {
 							softwareTool = tagText;
-						} else if(id.equals("TEN") || id.equals("TENC") || id.equalsIgnoreCase("?enc")) {
+						} else if(id.equals("TEN") || id.equals("TENC") || id.equalsIgnoreCase("©enc")) {
 							encodedBy = tagText;
 						} else {
 							System.out.println("Unimplemented Media Tag: \"" + id + "\"!");
