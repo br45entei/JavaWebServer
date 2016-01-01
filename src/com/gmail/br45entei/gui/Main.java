@@ -67,28 +67,34 @@ public class Main {
 	private Composite			activeProxyConnections;
 	private Label				lblNoProxyConnections;
 	
+	/** @return The main Thread */
 	public final Thread getThread() {
 		return this.currentThread;
 	}
 	
+	/** @return The Console Thread */
 	public final ConsoleThread getConsoleThread() {
 		return this.consoleThread;
 	}
 	
+	/** @return The instantiation of {@link #Main} */
 	public static final Main getInstance() {
 		return instance;
 	}
 	
+	/** @return Whether or not the server is enabled */
 	public final boolean isEnabled() {
 		return this.isEnabled;
 	}
 	
+	/** @return Whether or not the SWT console window is supposed to be open */
 	public final boolean isSWTConsoleWindowOpen() {
 		return this.showConsoleWindow;
 	}
 	
+	/** @return The SWT console window */
 	public final ConsoleWindow getConsoleWindow() {
-		return this.consoleWindow != null ? this.consoleWindow : null;
+		return this.consoleWindow;
 	}
 	
 	/** Launch the application.
@@ -164,6 +170,7 @@ public class Main {
 		System.out.println("End of main window thread.");
 	}
 	
+	/** Runs the main SWT update loop */
 	public final void runLoop() {
 		if(this.shell.isDisposed()) {
 			return;
@@ -252,8 +259,15 @@ public class Main {
 			ArrayList<ClientRequestStatus> clientRequestStatuses = getCurrentIncomingClientInfos();
 			for(ClientRequestStatus info : clientRequestStatuses) {
 				if(info != null) {
-					this.getCompositeForConnection(info, this.incomingActiveConnections).isInList = true;
-					ranClock = true;
+					CompositeInfo cInfo = this.getCompositeForConnection(info, this.incomingActiveConnections);
+					if(cInfo != null) {
+						cInfo.isInList = true;
+						ranClock = true;
+					} else {
+						CodeUtil.sleep(4L);
+					}
+				} else {
+					CodeUtil.sleep(8L);
 				}
 			}
 			final boolean noActiveIncomingConnections = this.incomingActiveConnections.getChildren().length <= 1;
@@ -279,8 +293,15 @@ public class Main {
 			ArrayList<ClientRequestStatus> clientProxyStatuses = getCurrentProxyClientInfos();
 			for(ClientRequestStatus info : clientProxyStatuses) {
 				if(info != null) {
-					this.getCompositeForConnection(info, this.activeProxyConnections).isInList = true;
-					ranClock = true;
+					CompositeInfo cInfo = this.getCompositeForConnection(info, this.activeProxyConnections);
+					if(cInfo != null) {
+						cInfo.isInList = true;
+						ranClock = true;
+					} else {
+						CodeUtil.sleep(4L);
+					}
+				} else {
+					CodeUtil.sleep(8L);
 				}
 			}
 			final boolean noActiveProxyConnections = this.activeProxyConnections.getChildren().length <= 1;
@@ -339,6 +360,7 @@ public class Main {
 		}
 	}
 	
+	/** Tells the server to shut down */
 	public final void shutdown() {
 		this.isEnabled = false;
 		this.consoleThread.stopThread();
@@ -545,8 +567,10 @@ public class Main {
 	}
 	
 	private CompositeInfo getCompositeForConnection(final ClientRequestStatus info, Composite parent) {
+		int numOfCompositeChildren = 0;
 		for(Control control : parent.getChildren()) {
 			if(control instanceof CompositeInfo) {
+				numOfCompositeChildren++;
 				CompositeInfo connection = (CompositeInfo) control;
 				if(connection.uuid.equals(info.getUUID())) {
 					this.updateCompositeInfoLocations(parent.getChildren());
@@ -556,9 +580,12 @@ public class Main {
 			}
 			this.runClock();
 		}
-		CompositeInfo connection = new CompositeInfo(this.shell, parent, SWT.BORDER | SWT.EMBEDDED, info, false, parent != this.activeProxyConnections);
-		this.updateCompositeInfoLocations(parent.getChildren());
-		return connection;
+		if(numOfCompositeChildren < 30) {
+			CompositeInfo connection = new CompositeInfo(this.shell, parent, SWT.BORDER | SWT.EMBEDDED, info, false, parent != this.activeProxyConnections);
+			this.updateCompositeInfoLocations(parent.getChildren());
+			return connection;
+		}
+		return null;
 	}
 	
 	private final void updateCompositeInfoLocations(Control[] controls) {

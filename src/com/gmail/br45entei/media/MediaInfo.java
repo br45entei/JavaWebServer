@@ -1,6 +1,7 @@
 package com.gmail.br45entei.media;
 
 import com.gmail.br45entei.media.MediaReader.MediaArtwork;
+import com.gmail.br45entei.util.StringUtil;
 import com.gmail.br45entei.util.StringUtils;
 
 import java.awt.Desktop;
@@ -21,53 +22,58 @@ import org.jaudiotagger.tag.images.Artwork;
  * @see MediaReader */
 public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 
-	public final String			bitRate;
-	public final int			bitsPerSample;
-	public final String			encodingType;
-	public final String			format;
-	public final long			numOfSamples;
-	public final String			trackLength;
-	public final String			trackLengthMillis;
-	public final int			trackLengthSeconds;
-	public final double			trackLengthDouble;
-	public final String			sampleRate;
+	public final String				bitRate;
+	public final int				bitsPerSample;
+	public final String				encodingType;
+	public final String				format;
+	public final long				numOfSamples;
+	public final String				trackLength;
+	public final String				trackLengthMillis;
+	public final int				trackLengthSeconds;
+	public final double				trackLengthDouble;
+	public final String				sampleRate;
 	
 	//====
 	
-	public final String			title;
-	public final int			trackNumber;
-	public final int			trackTotal;
-	public final int			diskNumber;
-	public final String			beatsPerMinute;
-	public final String			trackLengthMillisTag;
+	public final String				title;
+	public final int				trackNumber;
+	public final int				trackTotal;
+	public final int				diskNumber;
+	public final String				beatsPerMinute;
+	public final String				trackLengthMillisTag;
 	
-	public final String			composer;
-	public final String			artist;
-	public final String			leadArtist;
-	public final String			originalArtist;
-	public final String			album;
-	public final String			albumArtist;
-	public final MediaArtwork	albumArtwork;
-	public final String			year;
-	public final String			genre;
-	public final String			dateReleased;
-	public final String[]		contributingArtists;
+	public final String				composer;
+	public final String				author;
+	public final String				artist;
+	public final String				leadArtist;
+	public final String				originalArtist;
+	public final String				album;
+	public final String				albumArtist;
+	protected final MediaArtwork	albumArtwork;
+	public final String				year;
+	public final String				genre;
+	public final String				dateReleased;
+	public final String[]			contributingArtists;
 	
-	public final String			comments;
-	public final String			lyrics;
-	public final String			description;
-	public final String			contentType;
+	public final String				comments;
+	public final String				lyrics;
+	public final String				description;
+	public final String				popularimeter;
+	public final String				contentType;
 	
-	public final String			copyright;
-	public final String			license;
-	public final String			url;
-	public final String			officialURL;
-	public final String			language;
-	public final String			publisher;
-	public final String			softwareTool;
-	public final String			encodedBy;
+	public final String				copyright;
+	public final String				license;
+	public final String				vendor;
+	public final String				url;
+	public final String				officialURL;
+	public final String				language;
+	public final String				publisher;
+	public final String				softwareTool;
+	public final String				encodedBy;
 	
-	private volatile boolean	isClosed	= false;
+	private volatile boolean		hasArtwork	= false;
+	
+	private volatile boolean		isClosed	= false;
 	
 	protected MediaInfo(AudioFile afile, boolean getArtwork) {
 		final AudioHeader header = afile.getAudioHeader();
@@ -90,13 +96,14 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		
 		//=========
 		String title = "";
-		int trackNumber = 0;
-		int trackTotal = 0;
-		int diskNumber = 0;
+		int trackNumber = -1;
+		int trackTotal = -1;
+		int diskNumber = -1;
 		String beatsPerMinute = "";
 		String trackLengthMillisTag = "";
 		
 		String composer = "";
+		String author = "";
 		String artist = "";
 		String leadArtist = "";
 		String originalArtist = "";
@@ -110,10 +117,12 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		String comments = "";
 		String lyrics = "";
 		String description = "";
+		String popularimeter = "";
 		String contentType = "";
 		
 		String copyright = "";
 		String license = "";
+		String vendor = "";
 		String url = "";
 		String officialURL = "";
 		String language = "";
@@ -127,15 +136,16 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 			TagField tag = tags.next();
 			if(tag != null) {
 				if(!tag.isBinary()) {
-					final String id = tag.getId();
+					String id = tag.getId();
+					id = id.startsWith("WM/") ? id.substring(3) : id;
 					String tagText = tag.toString().trim();
 					if(tagText.startsWith("Text=\"") && tagText.endsWith("\";")) {
 						tagText = tagText.substring(6, tagText.length() - 2).trim();
 					}
 					if(!tagText.isEmpty()) {
-						if(id.equals("TT2") || id.equals("TIT2") || id.equalsIgnoreCase("©nam")) {
+						if(id.equals("TT2") || id.equals("TIT2") || id.equalsIgnoreCase("Â©nam") || id.equalsIgnoreCase("TITLE")) {
 							title = tagText;
-						} else if(id.equals("TRCK") || id.equalsIgnoreCase("trkn")) {
+						} else if(id.equals("TRCK") || id.equalsIgnoreCase("trkn") || id.equalsIgnoreCase("TRACKNUMBER") || id.equalsIgnoreCase("Track")) {
 							if(StringUtils.isStrLong(tagText)) {
 								trackNumber = Long.valueOf(tagText).intValue();
 							}
@@ -147,46 +157,52 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							beatsPerMinute = tagText;
 						} else if(id.equals("TLEN")) {
 							trackLengthMillisTag = tagText;
-						} else if(id.equals("TXXX")) {
+						} else if(id.equals("TXXX") || id.equals("TRACKTOTAL")) {
 							if(StringUtils.isStrLong(tagText)) {
 								trackTotal = Long.valueOf(tagText).intValue();
 							}
-						} else if(id.equals("TCOM") || id.equalsIgnoreCase("©wrt")) {
+						} else if(id.equals("TCOM") || id.equalsIgnoreCase("Â©wrt")) {
 							composer = tagText;
-						} else if(id.equals("TPE1") || id.equalsIgnoreCase("©ART")) {
+						} else if(id.equals("AUTHOR")) {
+							author = tagText;
+						} else if(id.equals("TPE1") || id.equalsIgnoreCase("Â©ART") || id.equalsIgnoreCase("ARTIST")) {
 							artist = tagText;
 						} else if(id.equals("TP1")) {
 							leadArtist = tagText;
 						} else if(id.equals("TOPE")) {
 							originalArtist = tagText;
-						} else if(id.equals("TAL") || id.equals("TALB") || id.equalsIgnoreCase("©alb")) {
+						} else if(id.equals("TAL") || id.equals("TALB") || id.equalsIgnoreCase("Â©alb") || id.equalsIgnoreCase("ALBUM")) {
 							album = tagText;
-						} else if(id.equals("aART")) {
+						} else if(id.equalsIgnoreCase("aART")) {
 							albumArtist = tagText;
 						} else if(id.startsWith("TPE")) {
 							conArtists.add(tagText);
-						} else if(id.equals("TDRC") || id.equals("TYER")) {//TDRC is used by VLC, but is not listed on http://id3.org/id3v2.3.0 for some reason
+						} else if(id.equals("TDRC") || id.equals("TYER") || id.equalsIgnoreCase("YEAR")) {//TDRC is used by VLC, but is not listed on http://id3.org/id3v2.3.0 for some reason
 							year = tagText;
-						} else if(id.equals("TCON") || id.equalsIgnoreCase("©gen") || id.equalsIgnoreCase("gnre")) {
+						} else if(id.equals("TCON") || id.equalsIgnoreCase("Â©gen") || id.equalsIgnoreCase("gnre") || id.equalsIgnoreCase("GENRE")) {
 							if(id.equalsIgnoreCase("gnre")) {
 								genre += "[" + tagText + "]\r\n";
 							} else {
 								genre += tagText + "\r\n";
 							}
-						} else if(id.equalsIgnoreCase("©day")) {
+						} else if(id.equalsIgnoreCase("Â©day") || id.equals("DATE")) {
 							dateReleased = tagText;
-						} else if(id.equalsIgnoreCase("©cmt") || id.equals("COMM") || id.equalsIgnoreCase("com")) {
+						} else if(id.equalsIgnoreCase("Â©cmt") || id.equals("COMM") || id.equalsIgnoreCase("com")) {
 							comments += tagText + "\r\n";
 						} else if(id.equals("USLT")) {
 							lyrics = tagText;
 						} else if(id.equalsIgnoreCase("desc")) {
 							description = tagText;
+						} else if(id.equals("POPM")) {
+							popularimeter = tagText;
 						} else if(id.equals("TCO")) {
 							contentType = tagText;
 						} else if(id.equals("TCOP") || id.equalsIgnoreCase("cprt")) {
 							copyright = tagText;
 						} else if(id.equals("WCOP")) {
 							license = tagText;
+						} else if(id.equalsIgnoreCase("vendor")) {
+							vendor = tagText;
 						} else if(id.equals("WXXX")) {
 							url = tagText;
 						} else if(id.equals("WOAF")) {
@@ -195,16 +211,18 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							language = tagText;
 						} else if(id.equals("TPUB")) {
 							publisher = tagText;
-						} else if(id.equalsIgnoreCase("©too")) {
+						} else if(id.equalsIgnoreCase("Â©too")) {
 							softwareTool = tagText;
-						} else if(id.equals("TEN") || id.equals("TENC") || id.equalsIgnoreCase("©enc")) {
+						} else if(id.equals("TEN") || id.equals("TENC") || id.equalsIgnoreCase("Â©enc")) {
 							encodedBy = tagText;
 						} else {
-							System.out.println("Unimplemented Media Tag: \"" + id + "\"!");
+							if(!id.startsWith("----:com.apple.iTunes")) {
+								System.out.println("Unimplemented Media Tag: \"" + id + "\"!");
+							}
 						}
 						//System.out.println((tag.isCommon() ? "" : "Uncommon") + "Tag[" + tag.getId() + "]: " + tagText);
 					} else {
-						//System.out.println("[Ignoring blank tag]: " + (tag.isCommon() ? "" : "Uncommon") + "Tag[" + tag.getId() + "]");
+						System.out.println("[Ignoring blank tag]: " + (tag.isCommon() ? "" : "Uncommon") + "Tag[" + tag.getId() + "]");
 					}
 				} else {
 					/*//System.out.println("BinaryTag[" + tag.getId() + "]: " + tag.toString());
@@ -228,6 +246,7 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		this.trackLengthMillisTag = trackLengthMillisTag;
 		
 		this.composer = composer;
+		this.author = author;
 		this.artist = artist;
 		this.leadArtist = leadArtist;
 		this.originalArtist = originalArtist;
@@ -241,18 +260,21 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		this.comments = comments.trim();
 		this.lyrics = lyrics;
 		this.description = description;
+		this.popularimeter = popularimeter;
 		this.contentType = contentType;
 		
-		this.copyright = !copyright.isEmpty() ? "Copyright ? " + copyright : "";
+		this.copyright = !copyright.isEmpty() ? "Copyright " + (copyright.trim().startsWith("â„—") ? "" : "Â© ") + (copyright.trim().toUpperCase().startsWith("(C)") ? copyright.trim().substring(3) : copyright) : "";
 		this.license = license;
+		this.vendor = vendor;
 		this.url = url;
 		this.officialURL = officialURL;
 		this.language = language;
 		this.publisher = publisher;
 		this.softwareTool = softwareTool;
 		this.encodedBy = encodedBy;
+		this.hasArtwork = MediaReader.doesFileHaveArtwork(afile);
 		MediaArtwork albumArtwork = null;
-		if(getArtwork) {
+		if(this.hasArtwork && getArtwork) {
 			Artwork artwork = MediaReader.getLargestArtworkFromAudioFile(afile);
 			albumArtwork = artwork != null ? new MediaArtwork(artwork) : null;
 		}
@@ -282,6 +304,16 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		}*/
 	}
 	
+	private static final String appendStrIfNotSuffixedTwice(String str, String suffix) {
+		return str.endsWith(suffix + suffix) ? str : str + suffix;
+	}
+	
+	/** @return True if the file has any artwork attached, regardless of whether
+	 *         or not the reader was told to retrieve it. */
+	public final boolean hasArtwork() {
+		return this.hasArtwork;
+	}
+	
 	@Override
 	public final String toString() {
 		final String lineSep = System.getProperty("line.separator");
@@ -296,39 +328,45 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		rtrn += "TrackLengthDouble: " + new BigDecimal(this.trackLengthDouble).toPlainString() + lineSep;
 		rtrn += "SampleRate: " + this.sampleRate + lineSep + lineSep;
 		
-		rtrn += "Title: " + this.title + lineSep;
-		rtrn += "TrackNumber: " + this.trackNumber + lineSep;
-		rtrn += "TrackTotal: " + this.trackTotal + lineSep;
-		rtrn += "Disk Number: " + this.diskNumber + lineSep;
-		rtrn += "BPM: " + this.beatsPerMinute + lineSep;
-		rtrn += "Track Length Millis[Tag]: " + this.trackLengthMillisTag + lineSep + lineSep;
+		rtrn += this.title.isEmpty() ? "" : "Title: " + this.title + lineSep;
+		rtrn += this.trackNumber == -1 ? "" : "TrackNumber: " + this.trackNumber + lineSep;
+		rtrn += this.trackTotal == -1 ? "" : "TrackTotal: " + this.trackTotal + lineSep;
+		rtrn += this.diskNumber == -1 ? "" : "Disk Number: " + this.diskNumber + lineSep;
+		rtrn += this.beatsPerMinute.isEmpty() ? "" : "BPM: " + this.beatsPerMinute + lineSep;
+		rtrn += this.trackLengthMillisTag.isEmpty() ? "" : "Track Length Millis[Tag]: " + this.trackLengthMillisTag + lineSep;
+		rtrn = appendStrIfNotSuffixedTwice(rtrn, lineSep);
 		
-		rtrn += "Composer: " + this.composer + lineSep;
-		rtrn += "Artist: " + this.artist + lineSep;
-		rtrn += "Lead Artist: " + this.leadArtist + lineSep;
-		rtrn += "Original Artist: " + this.originalArtist + lineSep;
-		rtrn += "Album: " + this.album + lineSep;
-		rtrn += "Album Artist: " + this.albumArtist + lineSep;
-		rtrn += "Year: " + this.year + lineSep;
-		rtrn += "Genre: " + this.genre + lineSep;
-		rtrn += "Date Released: " + this.dateReleased + lineSep;
-		rtrn += "Contributing Artists: " + StringUtils.stringArrayToString(this.contributingArtists, ' ') + lineSep + lineSep;
+		rtrn += this.composer.isEmpty() ? "" : "Composer: " + this.composer + lineSep;
+		rtrn += this.author.isEmpty() ? "" : "Author: " + this.author + lineSep;
+		rtrn += this.artist.isEmpty() ? "" : "Artist: " + this.artist + lineSep;
+		rtrn += this.leadArtist.isEmpty() ? "" : "Lead Artist: " + this.leadArtist + lineSep;
+		rtrn += this.originalArtist.isEmpty() ? "" : "Original Artist: " + this.originalArtist + lineSep;
+		rtrn += this.album.isEmpty() ? "" : "Album: " + this.album + lineSep;
+		rtrn += this.albumArtist.isEmpty() ? "" : "Album Artist: " + this.albumArtist + lineSep;
+		rtrn += this.year.isEmpty() ? "" : "Year: " + this.year + lineSep;
+		rtrn += this.genre.isEmpty() ? "" : "Genre: " + this.genre + lineSep;
+		rtrn += this.dateReleased.isEmpty() ? "" : "Date Released: " + this.dateReleased + lineSep;
+		rtrn += this.contributingArtists.length == 0 ? "" : "Contributing Artists: " + StringUtils.stringArrayToString(this.contributingArtists, ' ') + lineSep;
+		rtrn = appendStrIfNotSuffixedTwice(rtrn, lineSep);
 		
-		rtrn += "Comments: " + this.comments + lineSep;
-		rtrn += "Lyrics: " + this.lyrics + lineSep;
-		rtrn += "Description: " + this.description + lineSep;
-		rtrn += "Content Type: " + this.contentType + lineSep + lineSep;
+		rtrn += this.comments.isEmpty() ? "" : "Comments: " + this.comments + lineSep;
+		rtrn += this.lyrics.isEmpty() ? "" : "Lyrics: " + this.lyrics + lineSep;
+		rtrn += this.description.isEmpty() ? "" : "Description: " + this.description + lineSep;
+		rtrn += this.popularimeter.isEmpty() ? "" : "Popularimeter: " + this.popularimeter + lineSep;
+		rtrn += this.contentType.isEmpty() ? "" : "Content Type: " + this.contentType + lineSep;
+		rtrn = appendStrIfNotSuffixedTwice(rtrn, lineSep);
 		
-		rtrn += "Copyright: " + this.copyright + lineSep;
-		rtrn += "License: " + this.license + lineSep;
-		rtrn += "URL: " + this.url + lineSep;
-		rtrn += "Official URL: " + this.officialURL + lineSep;
-		rtrn += "Language: " + this.language + lineSep;
-		rtrn += "Publisher: " + this.publisher + lineSep;
-		rtrn += "Software Tool Used: " + this.softwareTool + lineSep;
-		rtrn += "Encoded by: " + this.encodedBy + lineSep;
+		rtrn += this.copyright.isEmpty() ? "" : "Copyright: " + this.copyright + lineSep;
+		rtrn += this.license.isEmpty() ? "" : "License: " + this.license + lineSep;
+		rtrn += this.vendor.isEmpty() ? "" : "Vendor: " + this.vendor + lineSep;
+		rtrn += this.url.isEmpty() ? "" : "URL: " + this.url + lineSep;
+		rtrn += this.officialURL.isEmpty() ? "" : "Official URL: " + this.officialURL + lineSep;
+		rtrn += this.language.isEmpty() ? "" : "Language: " + this.language + lineSep;
+		rtrn += this.publisher.isEmpty() ? "" : "Publisher: " + this.publisher + lineSep;
+		rtrn += this.softwareTool.isEmpty() ? "" : "Software Tool Used: " + this.softwareTool + lineSep;
+		rtrn += this.encodedBy.isEmpty() ? "" : "Encoded by: " + this.encodedBy + lineSep;
 		
-		rtrn += "Artwork:" + lineSep;// + "<pre>" + new String(this.albumArtwork, StandardCharsets.US_ASCII) + "</pre>";
+		rtrn = appendStrIfNotSuffixedTwice(rtrn, lineSep) + "Artwork:" + (this.albumArtwork != null ? "" : " [None attached]") + lineSep;//XXX (DEBUG) // + "<pre>" + new String(this.albumArtwork, StandardCharsets.US_ASCII) + "</pre>";
 		return rtrn;
 	}
 	
@@ -352,16 +390,26 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 	}
 	
 	public static final void main(String[] args) {
-		File file = new File("C:\\example\\file.mp3");
-		File output = new File("C:\\example\\output.png");
+		if(args.length == 0) {
+			System.out.println("Usage: java.exe -jar jarFile.jar path/to/media File.ext");
+			return;
+		}
+		File file = new File(StringUtil.stringArrayToString(args, ' '));
 		try {
 			MediaInfo info = MediaReader.readFile(file, true);
-			FileOutputStream out = new FileOutputStream(output);
-			out.write(info.albumArtwork.getData());
-			out.flush();
-			out.close();
-			info.close();
-			Desktop.getDesktop().open(output);
+			if(info != null) {
+				MediaArtwork artwork = info.getAlbumArtwork();
+				if(artwork != null) {
+					File output = new File("C:\\example\\output." + artwork.mimeType.trim().replace("image/", ""));
+					FileOutputStream out = new FileOutputStream(output);
+					out.write(artwork.getData());
+					out.flush();
+					out.close();
+					artwork.close();
+					Desktop.getDesktop().open(output);
+				}
+				info.close();
+			}
 		} catch(Throwable e) {
 			e.printStackTrace();
 		}

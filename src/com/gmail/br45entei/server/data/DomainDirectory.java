@@ -41,36 +41,37 @@ public final class DomainDirectory implements DisposableUUIDData {
 	
 	private boolean					isTemporary								= false;
 	
-	public final Property<UUID>		uuid									= new Property<>("UUID");
-	public final Property<File>		folder									= new Property<File>("HomeDirectory").setDescription("");
-	public final Property<String>	domain									= new Property<String>("Domain").setDescription("");
-	public final Property<String>	serverName								= new Property<>("ServerName", JavaWebServer.SERVER_NAME).setDescription("");
-	public final Property<String>	displayName								= new Property<String>("DisplayName").setDescription("");
-	public final Property<Boolean>	displayLogEntries						= new Property<>("DisplayLogEntries", Boolean.TRUE).setDescription("Whether or not any logs will be shown for this domain");
-	public final Property<String>	defaultFileName							= new Property<>("DefaultFileName", JavaWebServer.DEFAULT_FILE_NAME).setDescription("");
-	public final Property<String>	defaultFontFace							= new Property<>("DefaultFontFace", JavaWebServer.defaultFontFace).setDescription("");
-	public final Property<String>	defaultPageIcon							= new Property<>("DefaultPageIcon", JavaWebServer.DEFAULT_PAGE_ICON).setDescription("");
-	public final Property<String>	defaultStylesheet						= new Property<>("DefaultStylesheet", JavaWebServer.DEFAULT_STYLESHEET).setDescription("");
+	public final Property<UUID>		uuid									= new Property<UUID>("UUID").setDescription("This domain's randomly generated universally unique identifier, or UUID. This cannot be changed.");
+	public final Property<File>		folder									= new Property<File>("HomeDirectory").setDescription("The root folder that will be used as a starting point for serving and looking up files. If no default file is specified, the generated page for this folder is displayed in place of the home page.");
+	public final Property<String>	domain									= new Property<String>("Domain").setDescription("The ip address that clients will use when connecting to the server. A client may actually use a different ip address, but must use this domain's ip address in the \"host: \" header of it's request in order to connect to this domain, or a \"400 Bad Request\" response will be sent to the client for not having specified a host to connect to(if using HTTP/1.0, the server's external ip address is assumed).");
+	public final Property<String>	serverName								= new Property<>("ServerName", JavaWebServer.SERVER_NAME).setDescription("The server name for this domain.");
+	public final Property<String>	displayName								= new Property<String>("DisplayName").setDescription("This domain's 'display name', or the name that will be displayed in the client's webpage title.");
+	public final Property<Boolean>	displayLogEntries						= new Property<>("DisplayLogEntries", Boolean.TRUE).setDescription("Whether or not any logs will be shown on the console(including the filesystem) for this domain while clients connect to and download files from it.");
+	public final Property<String>	defaultFileName							= new Property<>("DefaultFileName", JavaWebServer.DEFAULT_FILE_NAME).setDescription("The file(or homepage) that is sent to connecting clients when no file is requested(i.e. \"GET / HTTP/1.1\")");
+	public final Property<String>	defaultFontFace							= new Property<>("DefaultFontFace", JavaWebServer.defaultFontFace).setDescription("The default font that every directory page will use.");
+	public final Property<String>	defaultPageIcon							= new Property<>("DefaultPageIcon", JavaWebServer.DEFAULT_PAGE_ICON).setDescription("The default icon(or favicon) that every directory page(in addition to the default server-wide favicon) will use.");
+	public final Property<String>	defaultStylesheet						= new Property<>("DefaultStylesheet", JavaWebServer.DEFAULT_STYLESHEET).setDescription("The default CSS stylesheet that every generated directory page will use.");
 	
-	public final Property<Integer>	mtu										= new Property<>("NetworkMTU", Integer.valueOf(0x400)).setDescription("");
-	public final Property<Long>		cacheMaxAge								= new Property<>("CacheMaxAge", JavaWebServer.DEFAULT_CACHE_MAX_AGE).setDescription("");
+	public final Property<Integer>	mtu										= new Property<>("NetworkMTU", Integer.valueOf(0x400)).setDescription("The maximum transmission unit, or MTU, to use when writing bytes to the output streams of clients(buffer size to use when sending clients data). Recommended setting is 1500, maximum setting should be 20480. Multiples of 512(or powers of 2) are recommended as well, such as 1024.");
+	public final Property<Long>		cacheMaxAge								= new Property<>("CacheMaxAge", JavaWebServer.DEFAULT_CACHE_MAX_AGE).setDescription("The maximum amount of time that clients should keep server files cached.");
 	
-	public final Property<Boolean>	areDirectoriesForbidden					= new Property<>("AreDirectoriesForbidden", Boolean.FALSE).setDescription("");
-	public final Property<Boolean>	calculateDirectorySizes					= new Property<>("CalculateDirectorySizes", new Boolean(JavaWebServer.calculateDirectorySizes));
-	public final Property<Boolean>	numberDirectoryEntries					= new Property<>("NumberDirectoryEntries", Boolean.FALSE).setDescription("");
-	public final Property<Boolean>	listDirectoriesFirst					= new Property<>("ListDirectoriesFirst", Boolean.TRUE).setDescription("");
+	public final Property<Boolean>	areDirectoriesForbidden					= new Property<>("AreDirectoriesForbidden", Boolean.FALSE).setDescription("Whether or not all directories(folders) are forbidden. Files contained within the directories will still be accessible. This allows you to better 'hide' your files without a password, or prevent clients from viewing your website's files all at once.");
+	public final Property<Boolean>	calculateDirectorySizes					= new Property<>("CalculateDirectorySizes", new Boolean(JavaWebServer.calculateDirectorySizes)).setDescription("Whether or not folder sizes are calculated via recursive reading. Recommended setting is false, as this can be slow with old hard disk drives or with many large files, reducing server speed.");
+	public final Property<Boolean>	numberDirectoryEntries					= new Property<>("NumberDirectoryEntries", Boolean.FALSE).setDescription("Whether or not files are numbered in the order that they are read from the local filesystem.");
+	public final Property<Boolean>	listDirectoriesFirst					= new Property<>("ListDirectoriesFirst", Boolean.TRUE).setDescription("Whether or not directories(folders) will be listed first.");
 	
 	public final Property<Boolean>	enableGZipCompression					= new Property<>("EnableGZipCompression", Boolean.TRUE).setDescription("Whether or not Gzip will be used when clients request it");
 	public final Property<Boolean>	enableFileUpload						= new Property<>("EnableFileUpload", Boolean.TRUE).setDescription("Whether or not authenticated users may upload files to the directory they are currently browsing");
 	public final Property<Boolean>	enableAlternateDirectoryListingViews	= new Property<>("EnableAlternateDirectoryListingViews", Boolean.TRUE).setDescription("");
-	public final Property<Boolean>	enableMediaListView						= new Property<>("EnableMediaListView", Boolean.TRUE).setDescription("");
-	public final Property<Boolean>	enableXmlListView						= new Property<>("EnableXmlListView", Boolean.TRUE).setDescription("");
-	public final Property<Boolean>	enableFilterView						= new Property<>("EnableFilterView", Boolean.TRUE).setDescription("");
-	public final Property<Boolean>	enableSortView							= new Property<>("EnableSortView", Boolean.TRUE).setDescription("");
-	public final Property<Boolean>	enableVLCPlaylistView					= new Property<>("EnableVLCPlaylistView", Boolean.TRUE).setDescription("");
-	public final Property<Boolean>	enableReadableFileViews					= new Property<>("EnableReadableFileViews", Boolean.TRUE).setDescription("");
+	public final Property<Boolean>	enableMediaView							= new Property<>("EnableMediaView", Boolean.TRUE).setDescription("Enables viewing audio, video, and image files all on the same page.");
+	public final Property<Boolean>	enableMediaList							= new Property<>("EnableMediaList", Boolean.TRUE).setDescription("Enables viewing the media information of any music files on the same page.");
+	public final Property<Boolean>	enableXmlListView						= new Property<>("EnableXmlListView", Boolean.TRUE).setDescription("Enables viewing a raw xml version of the directory.");
+	public final Property<Boolean>	enableFilterView						= new Property<>("EnableFilterView", Boolean.TRUE).setDescription("Enables filtering file types in the directory.");
+	public final Property<Boolean>	enableSortView							= new Property<>("EnableSortView", Boolean.TRUE).setDescription("Enables sorting the files by name, number, date, type, and size.");
+	public final Property<Boolean>	enableVLCPlaylistView					= new Property<>("EnableVLCPlaylistView", Boolean.TRUE).setDescription("Enables auto-generated VLC playlists of all of the media files on the current directory page.");
+	public final Property<Boolean>	enableReadableFileViews					= new Property<>("EnableReadableFileViews", Boolean.TRUE).setDescription("Enables a link to appear next to the file name of a file that cannot usually be viewed in the browser(i.e. *.rtf files).");
 	
-	public final Property<Boolean>	ignoreThumbsdbFiles						= new Property<>("IgnoreThumbsdbFiles", Boolean.TRUE).setDescription("");
+	public final Property<Boolean>	ignoreThumbsdbFiles						= new Property<>("IgnoreThumbsdbFiles", Boolean.TRUE).setDescription("Enables automatic exclusion of any \"Thumbs.db\" files.");
 	
 	public final HashMap<String, Property<?>> getPropertiesAsHashMap() {
 		final HashMap<String, Property<?>> rtrn = new HashMap<>();
@@ -88,7 +89,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 		rtrn.put(this.numberDirectoryEntries.getName(), this.numberDirectoryEntries);
 		rtrn.put(this.listDirectoriesFirst.getName(), this.listDirectoriesFirst);
 		rtrn.put(this.enableAlternateDirectoryListingViews.getName(), this.enableAlternateDirectoryListingViews);
-		rtrn.put(this.enableMediaListView.getName(), this.enableMediaListView);
+		rtrn.put(this.enableMediaView.getName(), this.enableMediaView);
 		rtrn.put(this.enableXmlListView.getName(), this.enableXmlListView);
 		rtrn.put(this.enableFilterView.getName(), this.enableFilterView);
 		rtrn.put(this.enableSortView.getName(), this.enableSortView);
@@ -151,8 +152,8 @@ public final class DomainDirectory implements DisposableUUIDData {
 				this.enableFileUpload.setValue(Boolean.valueOf(value));
 			} else if(pname.equalsIgnoreCase(this.enableAlternateDirectoryListingViews.getName())) {
 				this.enableAlternateDirectoryListingViews.setValue(Boolean.valueOf(value));
-			} else if(pname.equalsIgnoreCase(this.enableMediaListView.getName())) {
-				this.enableMediaListView.setValue(Boolean.valueOf(value));
+			} else if(pname.equalsIgnoreCase(this.enableMediaView.getName())) {
+				this.enableMediaView.setValue(Boolean.valueOf(value));
 			} else if(pname.equalsIgnoreCase(this.enableXmlListView.getName())) {
 				this.enableXmlListView.setValue(Boolean.valueOf(value));
 			} else if(pname.equalsIgnoreCase(this.enableFilterView.getName())) {
@@ -540,12 +541,21 @@ public final class DomainDirectory implements DisposableUUIDData {
 		return this;
 	}
 	
-	public final boolean getEnableMediaListView() {
-		return this.getEnableAlternateDirectoryListingViews() && this.enableMediaListView.getValue().booleanValue();
+	public final boolean getEnableMediaView() {
+		return this.getEnableAlternateDirectoryListingViews() && this.enableMediaView.getValue().booleanValue();
 	}
 	
-	public final DomainDirectory setEnableMediaListView(boolean enableMediaListView) {
-		this.enableMediaListView.setValue(enableMediaListView);
+	public final DomainDirectory setEnableMediaView(boolean enableMediaView) {
+		this.enableMediaView.setValue(enableMediaView);
+		return this;
+	}
+	
+	public final boolean getEnableMediaList() {
+		return this.getEnableAlternateDirectoryListingViews() && this.enableMediaList.getValue().booleanValue();
+	}
+	
+	public final DomainDirectory setEnableMediaList(boolean enableMediaList) {
+		this.enableMediaList.setValue(enableMediaList);
 		return this;
 	}
 	
@@ -805,7 +815,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 			config.set("enableGZipCompression", this.enableGZipCompression.getValue());
 			config.set("enableFileUpload", this.enableFileUpload.getValue());
 			config.set("enableAlternateDirectoryListingViews", this.enableAlternateDirectoryListingViews.getValue());
-			config.set("enableMediaListView", this.enableMediaListView.getValue());
+			config.set("enableMediaView", this.enableMediaView.getValue());
 			config.set("enableXmlListView", this.enableXmlListView.getValue());
 			config.set("enableFilterView", this.enableFilterView.getValue());
 			config.set("enableSortViews", this.enableSortView.getValue());
@@ -896,7 +906,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 			this.enableGZipCompression.setValue(Boolean.valueOf(config.getBoolean("enableGZipCompression", this.enableGZipCompression.getValue().booleanValue())));
 			this.enableFileUpload.setValue(Boolean.valueOf(config.getBoolean("enableFileUpload", this.enableFileUpload.getValue().booleanValue())));
 			this.enableAlternateDirectoryListingViews.setValue(Boolean.valueOf(config.getBoolean("enableAlternateDirectoryListingViews", this.enableAlternateDirectoryListingViews.getValue().booleanValue())));
-			this.enableMediaListView.setValue(Boolean.valueOf(config.getBoolean("enableMediaListView", this.enableMediaListView.getValue().booleanValue())));
+			this.enableMediaView.setValue(Boolean.valueOf(config.getBoolean("enableMediaView", this.enableMediaView.getValue().booleanValue())));
 			this.enableXmlListView.setValue(Boolean.valueOf(config.getBoolean("enableXmlListView", this.enableXmlListView.getValue().booleanValue())));
 			this.enableFilterView.setValue(Boolean.valueOf(config.getBoolean("enableFilterView", this.enableFilterView.getValue().booleanValue())));
 			this.enableSortView.setValue(Boolean.valueOf(config.getBoolean("enableSortViews", this.enableSortView.getValue().booleanValue())));

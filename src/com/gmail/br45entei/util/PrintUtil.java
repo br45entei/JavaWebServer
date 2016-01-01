@@ -153,6 +153,17 @@ public class PrintUtil {
 	
 	protected static final String	newLine	= "<NEW_LINE>";
 	
+	public static final void flushStreams() {
+		getOut().flush();
+		getErr().flush();
+		if(secondaryOut != null) {
+			secondaryOut.flush();
+		}
+		if(secondaryErr != null) {
+			secondaryErr.flush();
+		}
+	}
+	
 	/** Calls {@link #println(String)} and then calls {@link #printToConsole()}.
 	 * 
 	 * @param str The text to log

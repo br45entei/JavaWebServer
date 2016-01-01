@@ -119,6 +119,7 @@ public final class MultipartFormData {
 				contentDisposition = line.substring("content-disposition: ".length());
 				String[] split1 = contentDisposition.split(Pattern.quote(";"));
 				for(String s : split1) {
+					status.markReadTime();
 					s = s.trim();
 					if(s.contains("=")) {
 						String[] entry = s.split(Pattern.quote("="));
@@ -151,6 +152,7 @@ public final class MultipartFormData {
 			} else if(isLineEmpty && isFile) {//hopefully we've found the data part of the form data here
 				while(true) {
 					status.setStatus("Collecting current file data...");
+					status.markReadTime();
 					in.mark(0);//(the zero here does nothing according to the javadocs for ByteArrayInputStream)
 					if(nextByteIsNextBoundary(in, boundary, status)) {
 						status.markReadTime();
@@ -220,7 +222,7 @@ public final class MultipartFormData {
 				value = null;*/
 			}
 			wasPrevLineEmpty = isLineEmpty;
-			
+			status.markReadTime();
 		}
 		in.dispose();
 		fileData.dispose();

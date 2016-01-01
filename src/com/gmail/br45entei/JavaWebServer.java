@@ -71,13 +71,13 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map.Entry;
-import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -109,6 +109,7 @@ import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_413;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_418;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_421;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_429;
+import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_500;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_501;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_502;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_504;
@@ -138,7 +139,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 																																																																																																																			
 	public static final String										APPLICATION_NAME				= "JavaWebServer";
 	public static final String										APPLICATION_VERSION				= "1.0";
-	public static final String										COPYRIGHT_YEAR					= "2015";
+	public static final String										COPYRIGHT_YEAR					= "2016";
 	public static final String										APPLICATION_AUTHOR				= "Brian_Entei";
 	
 	/** The legal notice that is printed to the console. */
@@ -147,8 +148,6 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	private static JavaWebServer									instance;
 	private final Thread											currentThread;
 	private final Thread											arrayListCleanupThread;
-	
-	protected static final Random									random							= new Random();
 	
 	public static final int											fNumberOfThreads				= (1000 * Runtime.getRuntime().availableProcessors());
 	private static final ThreadPoolExecutor							fThreadPool						= ((ThreadPoolExecutor) Executors.newFixedThreadPool(fNumberOfThreads/*, namedThreadFactory*/));
@@ -175,24 +174,31 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	public static final String										adminOptionsFileName			= "adminOptions.txt";
 	public static final String										proxyOptionsFileName			= "proxyOptions.txt";
 	
+	/** The concurrent list of all currently connected sockets(clients). */
 	public static final ConcurrentLinkedQueue<Socket>				sockets							= new ConcurrentLinkedQueue<>();
-	private static final ConcurrentLinkedQueue<String>				sessionIDs						= new ConcurrentLinkedQueue<>();
+	//private static final ConcurrentLinkedQueue<String>				sessionIDs						= new ConcurrentLinkedQueue<>();
 	
+	/** The name of the folder in which banned client data is stored locally. */
 	public static final String										sinBinFolderName				= "SinBin";
+	/** The concurrent list of banned clients, or "SinBin" */
 	public static final ConcurrentLinkedQueue<NaughtyClientData>	sinBin							= new ConcurrentLinkedQueue<>();
-	public static final HashMap<String, ClientConnectTime>			clientConnectionData			= new HashMap<>();
 	
+	/** The default realm used when creating a new restricted file or page. */
 	public static final String										DEFAULT_AUTHORIZATION_REALM		= "Forbidden File(s)";
+	/** The default username used when creating a new restricted file or page. */
 	public static final String										DEFAULT_AUTHORIZATION_USERNAME	= "username";
+	/** The default password used when creating a new restricted file or page. */
 	public static final String										DEFAULT_AUTHORIZATION_PASSWORD	= "";
 	
 	//=======================
 	
+	/** Cache-Control header that tells the client that it is viewing a private
+	 * page and that it shouldn't cache it. */
 	public static final String										cachePrivateMustRevalidate		= "private, max-age=0, no-cache, must-revalidate";
 	
 	//=======================
 	
-	/**  */
+	/** The CSS table style that will be used in generated directory pages. */
 	public static final String										HTML_TABLE_STYLE				= "table {\r\n" + //
 																									"  display: table;\r\n" + //
 																									"  border-collapse: separate;\r\n" + //
@@ -219,7 +225,8 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 																									"  border-left-color: inherit;\r\n" + //
 																									"}\r\n";
 	
-	/**  */
+	/** A script that adjusts the size of iFrames in the "Media View" version of
+	 * generated directory pages. */
 	public static final String										AUTO_RESIZE_JAVASCRIPT			= "<script>\r\n" + //
 																									"function autoResize(id) {\r\n" + //
 																									"\tvar newheight;\r\n" + //
@@ -233,8 +240,15 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 																									"}\r\n" + //
 																									"</script>";
 	
+	/** HTML metadata tag for "text/html" and charset UTF-8 */
 	public static final String										HTML_HEADER_META_CONTENT_TYPE	= "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">";
+	/** HTML tag letting the client know that it can resize the window to fit the
+	 * screen size. */
 	public static final String										HTML_HEADER_META_VIEWPORT		= "<meta name=viewport content=\"width=device-width, initial-scale=1\">";
+	
+	/** Three non-breaking spaces, or:
+	 * <code>&amp;nbsp;&amp;nbsp;&amp;nbsp;</code> */
+	public static final String										nonBreakingSpaces				= "&nbsp;&nbsp;&nbsp;";
 	
 	//=======================
 	
@@ -246,6 +260,9 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	
 	//=======================
 	
+	/** @param ip The ip address of the suspected banned client to use
+	 * @return The ban status of the given client if it is still listed as
+	 *         banned, or null otherwise */
 	public static final NaughtyClientData getNaughtyClientDataFor(String ip) {
 		for(NaughtyClientData naughty : new ArrayList<>(sinBin)) {
 			if(naughty.clientIp.equalsIgnoreCase(ip)) {
@@ -255,18 +272,26 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		return null;
 	}
 	
+	/** Checks if the given client should still be banned before returning the
+	 * saved data. If the client is no longer supposed to be banned, it is
+	 * pardoned and null is returned.
+	 * 
+	 * @param ip The ip address of the suspected banned client to use
+	 * @return The ban status of the given client if it is still banned, or null
+	 *         otherwise. */
 	public static final NaughtyClientData getBannedClient(String ip) {
 		for(NaughtyClientData naughty : new ArrayList<>(sinBin)) {
 			if(naughty.clientIp.equalsIgnoreCase(ip)) {
 				if(naughty.inSinBinUntil == -1L) {
 					return naughty;
 				}
+				if(naughty.warnCount <= 0) {
+					sinBin.remove(naughty);
+					continue;
+				}
 				long timeLeftUntilBanLift = System.currentTimeMillis() - naughty.inSinBinUntil;
 				if(timeLeftUntilBanLift > 0) {
 					return naughty;
-				}
-				if(naughty.warnCount <= 0) {
-					sinBin.remove(naughty);
 				}
 				return null;
 			}
@@ -274,11 +299,10 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		return null;
 	}
 	
+	/** @param ip The ip address of the client to check
+	 * @return The {@link ClientConnectTime} of the given client. If */
 	public static final ClientConnectTime getClientConnectTimeFor(String ip) {
-		ClientConnectTime clientData = clientConnectionData.get(ip);
-		if(clientData == null) {
-			clientData = new ClientConnectTime();
-		}
+		ClientConnectTime clientData = new ClientConnectTime();
 		int numberOfConnections = 1;
 		clientData.lastConnectionTime = System.currentTimeMillis();
 		for(Socket s : new ArrayList<>(sockets)) {
@@ -310,6 +334,18 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		}
 	}
 	
+	/** @param ip The ip address of the client to check
+	 * @param newConnection Whether or not the client is connecting to this
+	 *            server for the first time(default value is true)
+	 * @return True if the client was already banned, or was just banned as a
+	 *         result of checking it's open traffic to this server.<br>
+	 *         If the client appears to have more than 20 open connections to
+	 *         this server and is attempting another one within 250 milliseconds
+	 *         of the last one, it will be banned for 5 minutes for 'dos-ing',
+	 *         or 'denial-of-service-ing' this server. This is a work in
+	 *         progress, and may ban clients that load multiple files from a
+	 *         single webpage normally.(Usually, any one device will only open 6
+	 *         concurrent connections to the same server.) */
 	public static final boolean isIpBanned(String ip, boolean newConnection) {
 		ip = AddressUtil.getClientAddressNoPort(ip);
 		NaughtyClientData check = getNaughtyClientDataFor(ip);//getBannedClient(ip);
@@ -360,22 +396,34 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	 * Otherwise, if value this is less than 1, it is ignored. */
 	public static int					overrideThreadPoolSize		= -1;
 	
+	/** Whether or not per-client console logging is enabled. Major errors/stack
+	 * traces and general server logs will appear even if this is set to false. */
 	public static boolean				enableConsoleLogging		= true;
 	
 	protected ServerSocket				socket						= null;
 	
+	/** The authorization realm used when clients attempt to administrate this
+	 * server. */
 	public static final String			adminAuthorizationRealm		= "Server Administration";
 	protected static volatile String	adminUsername				= "Administrator";
 	protected static volatile String	adminPassword				= "password";
 	//protected static ConcurrentHashMap<Thread, HttpDigestAuthorization>	serverAdministrationAuths	= new ConcurrentHashMap<>();
 	
 	protected static boolean			enableProxyServer			= false;
+	/** Whether or not this server should send proxy headers such as "Via:" and
+	 * "(X-)Forwarded-For:" to remote servers when making HTTP requests. */
 	public static boolean				sendProxyHeadersWithRequest	= true;
+	/** Whether or not using this server as a proxy requires a username and
+	 * password. */
 	public static boolean				proxyRequiresAuthorization	= true;
+	/** The authorization realm used for clients attempting to use this server as
+	 * a proxy. */
 	public static final String			proxyAuthroizationRealm		= SERVER_NAME_HEADER + " Proxy";
 	protected static String				proxyUsername				= "Proxy User";
 	protected static String				proxyPassword				= "password";
 	
+	/** Whether or not we should use cookies to help authenticate and hold a
+	 * client's session */
 	public static volatile boolean		useCookieAuthentication		= false;
 	
 	/** @param clientUser The username that the client sent
@@ -387,7 +435,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	}
 	
 	/** @param request The client's HTTP request
-	 * @return The client's ip address and port */
+	 * @return The client's remote ip address and port */
 	public static final String getClientAddress(HTTPClientRequest request) {
 		String rtrn = request.status.getClientAddress();
 		if(!request.xForwardedFor.isEmpty()) {
@@ -397,22 +445,39 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		return rtrn;
 	}
 	
+	/** @param request The client's request
+	 * @return The client's remote ip address without any port number */
 	public static final String getClientIPNoPort(HTTPClientRequest request) {
 		return AddressUtil.getClientAddressNoPort(getClientAddress(request));
 	}
 	
+	/** @param request The client's request
+	 * @return The domain/ip address that the client used to connect to this
+	 *         server(not the client's remote ip! See
+	 *         {@link #getClientAddress(HTTPClientRequest)} for that). */
 	public static final String getClientDomain(HTTPClientRequest request) {
 		return(request.host.trim().isEmpty() ? request.http2Host : request.host);
 	}
 	
+	/** @param request The client's request
+	 * @return Whether or not the client's session ID was removed, effectively
+	 *         logging the client out(if {@link #isLoggedIn(HTTPClientRequest)}
+	 *         returns false, this will do so as well). */
 	public static final boolean removeClientSessionID(HTTPClientRequest request) {
 		return BasicAuthorizationResult.removeSessionIDForClient(getClientIPNoPort(request), getClientDomain(request));
 	}
 	
+	/** @param request The client's request
+	 * @return Whether or not the client is currently logged in(may return false
+	 *         if cookies are not being used) */
 	public static final boolean isLoggedIn(HTTPClientRequest request) {
 		return BasicAuthorizationResult.isLoggedIn(getClientIPNoPort(request), getClientDomain(request));
 	}
 	
+	/** @param request The client's request
+	 * @param useCookies Whether or not cookies should be used to authenticate
+	 *            and hold a client's session
+	 * @return The authentication result */
 	public static final BasicAuthorizationResult authenticateBasicForServerAdministration(HTTPClientRequest request, boolean useCookies) {
 		if(useCookies) {
 			return BasicAuthorizationResult.authenticateBasic(request.authorization, adminAuthorizationRealm, adminUsername, adminPassword, getClientIPNoPort(request), getClientDomain(request), request.cookies);
@@ -437,6 +502,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	
 	//====
 	
+	/** Updates all of the thread pools' core sizes. */
 	public static final void updateThreadPoolSizes() {
 		checkThreadAccess();
 		if(overrideThreadPoolSize != -1) {
@@ -448,10 +514,12 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		}
 	}
 	
+	/** @return The HTTP thread pool's core size. */
 	public static final int getfThreadPoolCoreSize() {
 		return fThreadPool.getCorePoolSize();
 	}
 	
+	/** @return The HTTPS thread pool's core size. */
 	public static final int getfSSLThreadPoolCoreSize() {
 		if(enableSSLThread) {
 			return fSSLThreadPool.getCorePoolSize();
@@ -461,20 +529,24 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	
 	//====
 	
+	/** @return The Administration username */
 	public static final String getAdminUsername() {
 		return adminUsername;
 	}
 	
+	/** @return The Administration password */
 	public static final String getAdminPassword() {
 		checkThreadAccess();
 		return adminPassword;
 	}
 	
+	/** @param username The Administration username(case insensitive) */
 	public static final void setAdminUsername(String username) {
 		checkThreadAccess();
 		adminUsername = username;
 	}
 	
+	/** @param password The Administration password */
 	public static final void setAdminPassword(String password) {
 		checkThreadAccess();
 		adminPassword = password;
@@ -482,20 +554,28 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	
 	//====
 	
+	/** @return The username that clients must use in order to use the proxy
+	 *         features */
 	public static final String getProxyUsername() {
 		return proxyUsername;
 	}
 	
+	/** @return The password that clients must use in order to use the proxy
+	 *         features */
 	public static final String getProxyPassword() {
 		checkThreadAccess();
 		return proxyPassword;
 	}
 	
+	/** @param username The username(case insensitive) that clients must use in
+	 *            order to use the proxy features */
 	public static final void setProxyUsername(String username) {
 		checkThreadAccess();
 		proxyUsername = username;
 	}
 	
+	/** @param password The password that clients must use in order to use the
+	 *            proxy features */
 	public static final void setProxyPassword(String password) {
 		checkThreadAccess();
 		proxyPassword = password;
@@ -503,14 +583,18 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	
 	//====
 	
+	/** @return Whether or not the server is active. */
 	public static final boolean serverActive() {
 		return serverActive;
 	}
 	
+	/** @return Whether or not Proxy server functionality is enabled. */
 	public static final boolean isProxyServerEnabled() {
 		return enableProxyServer;
 	}
 	
+	/** @param enableProxyServer Whether or not Proxy server functionality should
+	 *            be enabled */
 	public static final void setProxyServerEnabled(boolean enableProxyServer) {
 		checkThreadAccess();
 		JavaWebServer.enableProxyServer = enableProxyServer;
@@ -518,24 +602,28 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	
 	//====
 	
+	/** @param str The string to print */
 	public static final void print(String str) {
 		if(enableConsoleLogging) {
 			PrintUtil.print(str);
 		}
 	}
 	
+	/** @param str The string to print */
 	public static final void printlnDebug(String str) {
 		if(enableConsoleLogging && HTTPClientRequest.debug) {
 			PrintUtil.println(str);
 		}
 	}
 	
+	/** @param str The string to print */
 	public static final void println(String str) {
 		if(enableConsoleLogging) {
 			PrintUtil.println(str);
 		}
 	}
 	
+	/** @param str The string to print */
 	public static final void printErrln(String str) {
 		if(enableConsoleLogging) {
 			PrintUtil.printErrln(str);
@@ -1014,6 +1102,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		if(isCurrentThreadSWT) {
 			Main.getInstance().runLoop();
 		}
+		PrintUtil.printlnNow("Saving server settings to file...");
 		saveOptionsToFile(true);
 		PrintUtil.printToConsole();
 		PrintUtil.printErrToConsole();
@@ -1021,6 +1110,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			Main.getInstance().runLoop();
 		}
 		if(currentThread != this.currentThread) {//i.e. if this shutdown method was called from the gui thread(Main.java)
+			PrintUtil.printlnNow("Interrupting main server thread...");
 			try {
 				this.currentThread.interrupt();
 			} catch(Throwable e) {
@@ -1052,11 +1142,11 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		if(isCurrentThreadSWT) {
 			Main.getInstance().runLoop();
 		}
-		PrintUtil.printlnNow("Server has shut down.");
+		PrintUtil.printlnNow("Performing cleanup...");
 		PrintUtil.printErrToConsole();
 		if(isCurrentThreadSWT) {
 			for(int i = 0; i < 10; i++) {
-				Main.getInstance().runLoop();
+				Main.getInstance().runLoop();//Prevents the window from freezing right before exiting. Yes, this seems pointless, but idc.
 			}
 		} else {
 			for(int i = 0; i < 10; i++) {
@@ -1080,6 +1170,8 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			} catch(Throwable ignored) {
 			}
 		}
+		PrintUtil.printlnNow("Server has shut down.");
+		PrintUtil.flushStreams();
 		System.exit(0);
 	}
 	
@@ -1266,7 +1358,15 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 										reuse = false;
 									}
 									if(reuse) {
+										long startTime = System.currentTimeMillis();
 										while((result = HandleAdminRequest(s, in, reuse)).reuse) {
+											if(System.currentTimeMillis() - startTime < 250L) {//FIXME There's a strange bug/glitch that causes CPU usage to spike when a request starts looping for some reason, so this is a temporary hack/workaround until I can find it...
+												reuse = false;
+												System.gc();
+												PrintUtil.printToConsole();
+												PrintUtil.printErrToConsole();
+												break;
+											}
 											System.gc();
 											PrintUtil.printToConsole();
 											PrintUtil.printErrToConsole();
@@ -1274,6 +1374,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 												reuse = false;
 												break;
 											}
+											startTime = System.currentTimeMillis();
 										}
 									}
 									try {
@@ -1371,7 +1472,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 									printErrln("Failed to initialize SSL handshake: " + e.getMessage());
 								} catch(SocketException e) {
 									if(HTTPClientRequest.debug || (e.getMessage() != null && !e.getMessage().equals("Socket Closed") && !e.getMessage().equals("Software caused connection abort: recv failed"))) {
-										println("\t /!\\\tFailed respond to client request:\r\n\t/___\\" + e.getMessage());
+										println("\t /!\\\tFailed to respond to client request:\r\n\t/___\\" + e.getMessage());
 									} else {
 										PrintUtil.clearLogs();
 										PrintUtil.clearErrLogs();
@@ -1576,6 +1677,24 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		instance.shutdown();
 	}
 	
+	/** @param mimeType The MIME type to test
+	 * @return Whether or not the MIME type is that of an audio file. */
+	public static final boolean isMimeTypeAudio(String mimeType) {
+		return mimeType.toLowerCase().startsWith("audio/") || mimeType.equalsIgnoreCase("application/ogg");
+	}
+	
+	/** @param mimeType The MIME type to test
+	 * @return Whether or not the MIME type is that of a video file. */
+	public static final boolean isMimeTypeVideo(String mimeType) {
+		return mimeType.toLowerCase().startsWith("video/");
+	}
+	
+	/** @param mimeType The MIME type to test
+	 * @return Whether or not the mime type is considered to be 'media'. */
+	public static final boolean isMimeTypeMedia(String mimeType) {
+		return isMimeTypeAudio(mimeType) || isMimeTypeVideo(mimeType);
+	}
+	
 	/** An array list containing any clients currently connected to this server */
 	public static final ArrayList<ClientInfo>			connectedClients		= new ArrayList<>();
 	/** An array list containing any clients that are making a request to this
@@ -1598,6 +1717,9 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		final String httpProtocol = (https ? "https://" : "http://");
 		final FileInfo info = clientInfo.requestedFile;
 		File requestedFile = new File(info.filePath);
+		
+		String reqFilePath = FilenameUtils.normalize(requestedFile.getAbsolutePath());
+		String wrkDirPath = FilenameUtils.normalize(JavaWebServer.rootDir.getAbsolutePath());
 		
 		//final File homeDirectory = domainDirectory.getDirectory();
 		
@@ -1688,7 +1810,45 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				out.close();
 			}
 			return;
+		} else if(reqFilePath.equalsIgnoreCase(wrkDirPath) || reqFilePath.startsWith(wrkDirPath)) {//If the requested file is(or is a child of) the current working directory of this server, then we should require administration credentials before allowing the client to view sensitive server files.
+			final BasicAuthorizationResult authResult = authenticateBasicForServerAdministration(request, false);
+			final String authCookie = authResult.authorizedCookie;
+			if(!authResult.passed()) {
+				response.setStatusCode(HTTP_401);
+				response.setHeader("Vary", "Accept-Encoding");
+				response.setHeader("Server", SERVER_NAME_HEADER);
+				response.setHeader("Date", StringUtils.getCurrentCacheTime());
+				response.setHeader(authResult.resultingAuthenticationHeader.split(Pattern.quote(":"))[0].trim(), StringUtil.stringArrayToString(authResult.resultingAuthenticationHeader.split(Pattern.quote(":")), ':', 1));//"WWW-Authenticate", "Basic realm=\"" + adminAuthorizationRealm + "\"");
+				response.setHeader("Last-Modified", StringUtils.getCacheTime(requestedFile.lastModified()));
+				response.setHeader("Cache-Control", cachePrivateMustRevalidate);
+				response.setHeader("Connection", (keepAlive ? "keep-alive" : "close"));
+				if(authCookie != null) {
+					response.setHeader("Set-Cookie", authCookie);
+				}
+				if(keepAlive) {
+					response.setHeader("Keep-Alive", "timeout=30");
+				}
+				response.setResponse("<!DOCTYPE html>\r\n"//
+						+ "<html>\r\n\t<head>\r\n"//
+						+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
+						+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
+						+ "\t\t<link rel=\"shortcut icon\" href=\"" + domainDirectory.getDefaultPageIcon() + "\" type=\"image/x-icon\">\r\n"//
+						+ "\t\t<title>Authorization Required - " + domainDirectory.getServerName() + "</title>\r\n"//
+						+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
+						+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+						+ "\t</head>\r\n"//
+						+ "\t<body>\r\n"//
+						+ "\t\t<h1>Authorization Required</h1><hr>\r\n"//
+						+ "\t\t<string title=\"In order to be able to administrate files on this server, you must be logged in as the administrator.\">You need permission to do that.</string><hr>\r\n"//
+						+ "\t\t<string>" + pageHeader + "</string>\r\n"//
+						+ "\t</body>\r\n</html>");
+				response.sendToClient(s, true);
+				connectedClients.remove(clientInfo);
+				//s.close();
+				return;
+			}
 		}
+		
 		//==
 		
 		@SuppressWarnings("unused")
@@ -1831,7 +1991,11 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				modifiedSince = true;
 			}
-			if(modifiedSince) {
+			String mediaCheck = request.requestArguments.get("mediaInfo");
+			final boolean mediaInfo = mediaCheck != null ? mediaCheck.equals("1") || mediaCheck.equalsIgnoreCase("true") : false;
+			String artworkCheck = request.requestArguments.get("artwork");
+			final boolean artwork = artworkCheck != null ? artworkCheck.equals("1") || artworkCheck.equalsIgnoreCase("true") : false;
+			if(modifiedSince || (mediaInfo/* TODO && domainDirectory.getEnableMediaInfoParsing()*/)) {
 				response.setHTTPVersion(versionToUse);
 				response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
 				response.setHeader("Vary", "Accept-Encoding");
@@ -1840,10 +2004,6 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				boolean autoClose = autoCloseCheck != null ? (autoCloseCheck.equals("1") || autoCloseCheck.equalsIgnoreCase("true")) : false;
 				String check = request.requestArguments.get("displayFile");
 				boolean displayFile = check != null ? check.equals("1") || check.equalsIgnoreCase("true") : false;
-				String mediaCheck = request.requestArguments.get("mediaInfo");
-				final boolean mediaInfo = mediaCheck != null ? mediaCheck.equals("1") || mediaCheck.equalsIgnoreCase("true") : false;
-				String artworkCheck = request.requestArguments.get("artwork");
-				final boolean artwork = artworkCheck != null ? artworkCheck.equals("1") || artworkCheck.equalsIgnoreCase("true") : false;
 				
 				String ext = FilenameUtils.getExtension(requestedFile.getAbsolutePath());
 				
@@ -1880,8 +2040,9 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						connectedClients.remove(clientInfo);
 						return;
 					}
-				} else if(mediaInfo) {//TODO && domainDirectory.getEnableMediaInfoParsing()) {
-					if(info.mimeType.toLowerCase().startsWith("audio/") || info.mimeType.toLowerCase().startsWith("video/")) {
+				} else if(mediaInfo) {
+					//TODO if(domainDirectory.getEnableMediaInfoParsing()) {
+					if(isMimeTypeMedia(info.mimeType)) {
 						if(artwork) {
 							String failReason = "";
 							MediaArtwork data = null;
@@ -1897,9 +2058,9 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 							response.setHeader("Accept-Ranges", "none");
 							if(data != null) {
 								response.setHeader("Content-Type", data.mimeType);
-								response.setHeader("Vary", "");
+								response.setHeader("Vary", "");//Remove the existing 'Vary' header
 								response.setResponse(data.getData());
-								response.setUseGZip(false);//The data is already compresssed, this will only slow it down!
+								response.setUseGZip(false);//The data is already compressed, this will only slow it down!
 								data.close();
 							} else {
 								response.setHeader("Content-Type", "text/html; charset=UTF-8");
@@ -1916,17 +2077,19 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								"\t<body>\r\n" + //
 								"\t\t" + pageHeader + "<br>\r\n" + //
 								(failReason.isEmpty() ? "" : "\t\t" + failReason + "<br>\r\n") + //
-								"\t\t<a href=\"" + fileLink + "\">Click to " + (info.mimeType.toLowerCase().startsWith("audio/") ? "listen" : "watch") + "</a>\r\n" + //
-								(previousPageLink == null ? "" : "\t\t<a href=\"" + previousPageLink + "\">Back to previous page</a>\r\n") + //
+								"\t\t<a href=\"" + fileLink + "\">Click to " + (isMimeTypeAudio(info.mimeType) ? "listen" : "watch") + "</a>\r\n" + //
+								(previousPageLink == null ? "" : "\t\t<a href=\"" + previousPageLink + "\">Back to previous page</a>&nbsp;\r\n") + //
+								(parentFileLink == null ? "" : "\t\t<a href=\"" + parentFileLink + "\">Back to " + (parentFile != null ? parentFile.getName() : "[parent file]") + "</a>\r\n") + //
 								"\t</body>\r\n</html>");
 							}
 						} else {
-							String mInfo = MediaReader.getMediaInfoHTMLFor(requestedFile, request);
+							String mInfo = MediaReader.getMediaInfoHTMLFor(requestedFile, domainDirectory.getDirectory().getAbsolutePath());
 							if(mInfo.contains("{0}")) {//Unable to parse media tags for file.
 								mInfo = mInfo.replace("{0}", StringUtil.encodeHTML(request.requestedFilePath));
 							}
 							response.setHeader("Content-Type", "text/html; charset=UTF-8");
 							response.setHeader("Server", SERVER_NAME_HEADER);
+							response.setHeader("Expires", StringUtils.getCacheTime(System.currentTimeMillis() + 300000L));//5 minutes from now
 							response.setHeader("Cache-Control", "no-cache, must-revalidate");
 							response.setHeader("Date", StringUtils.getCurrentCacheTime());
 							response.setHeader("Last-Modified", StringUtils.getCacheTime(requestedFile.lastModified()));
@@ -1944,15 +2107,44 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 							"\t<body>\r\n" + //
 							"\t\t" + pageHeader + "<br>\r\n" + //
 							"\t\t" + mInfo + "\r\n" + //
-							"\t\t<a href=\"" + fileLink + "\">Click to " + (info.mimeType.toLowerCase().startsWith("audio/") ? "listen" : "watch") + "</a>&nbsp;\r\n" + //
-							(previousPageLink == null ? "" : "\t\t<a href=\"" + previousPageLink + "\">Back to previous page</a>\r\n") + //
+							"\t\t<a href=\"" + fileLink + "\">Click to " + (isMimeTypeAudio(info.mimeType) ? "listen" : "watch") + "</a>&nbsp;\r\n" + //
+							(previousPageLink == null ? "" : "\t\t<a href=\"" + previousPageLink + "\">Back to previous page</a>&nbsp;\r\n") + //
+							(parentFileLink == null ? "" : "\t\t<a href=\"" + parentFileLink + "\">Back to " + (parentFile != null ? parentFile.getName() : "[parent file]") + "</a>\r\n") + //
 							"\t</body>\r\n</html>");
 						}
-						response.sendToClient(s, request.method.equalsIgnoreCase("GET"));
-						//s.close();
-						connectedClients.remove(clientInfo);
-						return;
+						//} else {
+						//(Tell the client media info parsing is not enabled for this domain)
+						//}
+					} else {
+						response.setHeader("Content-Type", "text/html; charset=UTF-8");
+						response.setHeader("Server", SERVER_NAME_HEADER);
+						response.setHeader("Expires", StringUtils.getCacheTime(System.currentTimeMillis() + 60000L));//1 minute from now
+						response.setHeader("Cache-Control", "no-cache, must-revalidate");
+						response.setHeader("Date", StringUtils.getCurrentCacheTime());
+						response.setHeader("Last-Modified", StringUtils.getCacheTime(requestedFile.lastModified()));
+						response.setHeader("Accept-Ranges", "none");
+						response.setResponse("<!DOCTYPE html>\r\n" + //
+						"<html>\r\n\t<head>\r\n" + //
+						"\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n" + //
+						"\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n" + //
+						"\t\t<link rel=\"shortcut icon\" href=\"" + domainDirectory.getDefaultPageIcon() + "\" type=\"image/x-icon\">\r\n" + //
+						"\t\t<title>" + requestedFile.getName() + " - Media Info - " + domainDirectory.getServerName() + "</title>\r\n" + //
+						"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
+						(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
+						AUTO_RESIZE_JAVASCRIPT + //
+						"\t</head>\r\n" + //
+						"\t<body>\r\n" + //
+						"\t\t" + pageHeader + "<br>\r\n" + //
+						"\t\t<string>The file &quot;" + request.requestedFilePath + "&quot; is not a media file(audio/***, video/***, etc.) or has an unrecognized MIME type.<br>The file's MIME type is:&nbsp;<pre>" + info.mimeType + "</pre></string>\r\n" + //
+						"\t\t<a href=\"" + fileLink + "\">Open/download file</a>&nbsp;\r\n" + //
+						(previousPageLink == null ? "" : "\t\t<a href=\"" + previousPageLink + "\">Back to previous page</a>&nbsp;\r\n") + //
+						(parentFileLink == null ? "" : "\t\t<a href=\"" + parentFileLink + "\">Back to " + (parentFile != null ? parentFile.getName() : "[parent file]") + "</a>\r\n") + //
+						"\t</body>\r\n</html>");
 					}
+					response.sendToClient(s, request.method.equalsIgnoreCase("GET"));
+					//s.close();
+					connectedClients.remove(clientInfo);
+					return;
 				}
 				String line = "";
 				if(ext.equals("url") && !(line = StringUtils.getUrlLinkFromFile(requestedFile)).isEmpty()) {
@@ -1962,7 +2154,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					response.setHeader("Date", StringUtils.getCurrentCacheTime());
 					response.setHeader("Last-Modified", StringUtils.getCacheTime(requestedFile.lastModified()));
 					response.setHeader("Accept-Ranges", allowByteRangeRequests ? "bytes" : "none");
-					long random = (new Random()).nextLong();
+					long random = ThreadLocalRandom.current().nextLong();
 					response.setResponse("<!DOCTYPE html>\r\n" + //
 					"<html>\r\n\t<head>\r\n" + //
 					"\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n" + //
@@ -1975,7 +2167,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					"\t</head>\r\n" + //
 					"\t<body>\r\n" + //
 					"\t\t" + pageHeader + "\r\n" + //
-					(request.referrerLink.isEmpty() ? "" : "<a href=\"" + request.referrerLink + "\">Back to previous page</a><br>\r\n") + //
+					(request.referrerLink.isEmpty() ? "" : "\t\t<a href=\"" + request.referrerLink + "\">Back to previous page</a><br>\r\n") + //
 					"\t\t<iframe src=\"" + line + "\" sandbox=\"allow-forms allow-scripts\" frameborder=\"1\" width=\"100%\" height=\"85%\" id=\"" + random + "\" onload=\"autoResize('" + random + "');\"></iframe><hr>\r\n" + //
 					"\t\t<a href=\"" + line + "\" target=\"_blank\">[link to url]</a>\r\n" + //
 					"\t</body>\r\n</html>");
@@ -1996,14 +2188,14 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					//s.close();
 					connectedClients.remove(clientInfo);
 					return;
-				} else if(autoClose && (info.mimeType.startsWith("audio/") || info.mimeType.startsWith("video/"))) {
+				} else if(autoClose && isMimeTypeMedia(info.mimeType)) {
 					response.setHeader("Content-Type", "text/html; charset=UTF-8");
 					response.setHeader("Server", SERVER_NAME_HEADER);
 					response.setHeader("Cache-Control", (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : (requestedFile.isDirectory() ? "no-cache, must-revalidate" : "public, max-age=" + domainDirectory.getCacheMaxAge())));
 					response.setHeader("Date", StringUtils.getCurrentCacheTime());
 					response.setHeader("Last-Modified", StringUtils.getCacheTime(requestedFile.lastModified()));
 					response.setHeader("Accept-Ranges", (allowByteRangeRequests ? "bytes" : "none"));
-					long random = (new Random()).nextLong();
+					long random = ThreadLocalRandom.current().nextLong();
 					response.setResponse("<!DOCTYPE html>\r\n" + //
 					"<html>\r\n\t<head>\r\n" + //
 					"\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n" + //
@@ -2080,8 +2272,10 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		final boolean xspf = xspfCheck != null ? (xspfCheck.equals("1") || xspfCheck.equalsIgnoreCase("true")) : false;
 		String xmlCheck = request.requestArguments.get("xml");
 		final boolean xml = xmlCheck != null ? (xmlCheck.equals("1") || xmlCheck.equalsIgnoreCase("true")) : false;
+		String mediaViewCheck = request.requestArguments.get("mediaView");
+		final boolean mediaViewFlag = mediaViewCheck != null ? (mediaViewCheck.equals("1") || mediaViewCheck.equalsIgnoreCase("true")) : false;
 		String mediaListCheck = request.requestArguments.get("mediaList");
-		final boolean mediaList = mediaListCheck != null ? (mediaListCheck.equals("1") || mediaListCheck.equalsIgnoreCase("true")) : false;
+		final boolean mediaListFlag = mediaListCheck != null ? (mediaListCheck.equals("1") || mediaListCheck.equalsIgnoreCase("true")) : false;
 		String filter = request.requestArguments.get("filter");
 		String sort = request.requestArguments.get("sort");
 		boolean wasSortNull = false;
@@ -2160,7 +2354,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
 					if(file.exists()) {
 						final String mimeType = domainDirectory.getMimeTypeForExtension("." + ext).toLowerCase();
-						if(mimeType.startsWith("audio/") || mimeType.startsWith("video/")) {
+						if(isMimeTypeMedia(mimeType)) {
 							areThereMediaFiles = true;
 						} else if(mimeType.startsWith("image/")) {
 							areThereImageFiles = true;
@@ -2239,7 +2433,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					}
 					File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
 					final String mimeType = domainDirectory.getMimeTypeForExtension("." + ext).toLowerCase();
-					final boolean isMediaFile = mimeType.startsWith("video/") || mimeType.startsWith("audio/");
+					final boolean isMediaFile = isMimeTypeMedia(mimeType);
 					final boolean isImageFile = mimeType.startsWith("image/");
 					final boolean isTextFile = mimeType.startsWith("text/");
 					boolean addFilePath = false;
@@ -2306,8 +2500,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			}
 			File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
 			if(file.exists()) {
-				final String mimeType = domainDirectory.getMimeTypeForExtension("." + FilenameUtils.getExtension(file.getAbsolutePath())).toLowerCase();
-				if(mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
+				if(isMimeTypeMedia(domainDirectory.getMimeTypeForExtension("." + FilenameUtils.getExtension(file.getAbsolutePath())).toLowerCase())) {
 					doesDirContainMediaFiles = true;
 					break;
 				}
@@ -2316,16 +2509,21 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		final boolean enableMediaInfo = doesDirContainMediaFiles;//TODO && domainDirectory.getEnableMediaInfoParsing();
 		
 		final String addFilterStr = (filter != null && !filter.isEmpty() ? "&filter=" + filter : "");
+		final String addSortStr = (requestedFile.isDirectory() && !wasSortNull ? "&sort=" + (isSortReversed ? "-" : "") + sort : "");
 		final boolean isFolderRoot = FilenameUtils.normalize(requestedFile.getAbsolutePath()).equalsIgnoreCase(homeDirPath);
 		
 		final String normalView = "\t\t<b><a href=\"" + fileLink + "\">Normal View</a></b>\t\r\n";
-		final String mediaListView = (domainDirectory.getEnableMediaListView() ? "\t\t<b><a href=\"" + fileLink + "?mediaList=1" + addFilterStr + "\">Media List View</a></b>\t\r\n" : "");
+		final String mediaView = (domainDirectory.getEnableMediaView() ? "\t\t<b><a href=\"" + fileLink + "?mediaView=1" + addFilterStr + "\">Media View</a></b>\t\r\n" : "");
+		final String mediaList = (domainDirectory.getEnableMediaList() ? "\t\t<b><a href=\"" + fileLink + "?mediaList=1" + addSortStr + addFilterStr + "\">Media List</a></b>\t\r\n" : "");
 		final String xmlView = (domainDirectory.getEnableXmlListView() ? "\t\t<b><a href=\"" + fileLink + "?xml=1" + addFilterStr + "\">Xml View</a></b>\r\n" : "");
 		final String xspfView = (domainDirectory.getEnableVLCPlaylistView() && doesDirContainMediaFiles ? "\t\t<b><a href=\"" + fileLink + "?xspf=1" + addFilterStr + "\" download=\"" + (isFolderRoot ? domainDirectory.getDomain().replace(":", ";") : FilenameUtils.getName(requestedFile.getAbsolutePath())) + ".xspf\" title=\"Download and save as '*.xspf', then open with VLC\">VLC Playlist View</a></b>\r\n" : "");
 		final String filterView = (domainDirectory.getEnableFilterView() && !options.isEmpty()) ? "\t\t<b>Filter view:&nbsp;</b><select onChange=\"window.location.href=this.value\" title=\"Filter list\">\r\n"//
 				+ options + "\t\t</select>\r\n" : (domainDirectory.getEnableFilterView() ? "<b>Filter view: (No files to filter)</b>\r\n" : "");
 		final String randomLinkView = (randomLink != null ? "\t\t<b><a href=\"" + randomLink + "\" rel=\"nofollow\"" + linkTarget + " title=\"(You may need to refresh the page for the next random file to appear)\">Open random file</a></b>\r\n" : "");
-		final String bodyHeader = pageHeader + "\r\n" + (domainDirectory.getEnableAlternateDirectoryListingViews() ? normalView + xmlView + mediaListView + xspfView + filterView + randomLinkView + "<hr>\r\n" : "");
+		final String bodyHeader = pageHeader + "\r\n" + (domainDirectory.getEnableAlternateDirectoryListingViews() ? normalView + xmlView + mediaView + (doesDirContainMediaFiles ? mediaList : "") + xspfView + filterView + randomLinkView + "<hr>\r\n" : "");
+		
+		final String backLink = fileLink + (addSortStr.isEmpty() ? "" : "?" + addSortStr.substring(1)) + (addFilterStr.isEmpty() ? "" : (addSortStr.isEmpty() ? "?" : "&") + addFilterStr.substring(1));
+		
 		if(xspf && domainDirectory.getEnableVLCPlaylistView()) {
 			out.println("Content-Type: application/xspf+xml" + (request.userAgent.toLowerCase().contains("vlc") ? "" : "; charset=UTF-8"));//XXX Adding the charset information causes VLC to not recognize the file as *.xspf, making the whole point moot when streaming the playlist to VLC(downloaded and saved versions work fine)
 			responseStr = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n";
@@ -2355,8 +2553,8 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						return;
 					}
 					if(clientInfo.requestedFile.isCancelled) {
-						//out.close();
-						//s.close();
+						out.close();
+						s.close();
 						return;
 					}
 				}
@@ -2369,14 +2567,18 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					}
 					File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
 					if(file.exists()) {
+						String unAliasedPath = (newPath.startsWith("/") ? "" : "/") + newPath;
+						final String curFileLink = StringEscapeUtils.escapeXml10(httpProtocol + request.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
+						
 						final String mimeType = domainDirectory.getMimeTypeForExtension("." + FilenameUtils.getExtension(file.getAbsolutePath())).toLowerCase();
-						if(mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
+						if(isMimeTypeMedia(mimeType)) {
 							final MediaInfo media = MediaReader.readFile(file, false);
 							trackList += "\t\t<track>\r\n";
 							trackList += "\t\t\t<location>" + StringEscapeUtils.escapeXml10(httpProtocol + request.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias((newPath.startsWith("/") ? "" : "/") + newPath))) + "</location>\r\n";
-							trackList += "\t\t\t<title>" + StringEscapeUtils.escapeXml10(FilenameUtils.getName(file.getAbsolutePath())) + "</title>\r\n";
-							trackList += media != null ? (media.artist != null ? "\t\t\t<creator>" + media.artist + "</creator>\r\n" : "") : "";
-							trackList += media != null ? (media.album != null ? "\t\t\t<album>" + media.album + "</album>\r\n" : "") : "";
+							trackList += "\t\t\t<title>" + StringEscapeUtils.escapeXml10(media != null && media.title != null && !media.title.isEmpty() ? media.title : FilenameUtils.getName(file.getAbsolutePath())) + "</title>\r\n";
+							trackList += media != null ? (media.artist != null && !media.artist.isEmpty() ? "\t\t\t<creator>" + StringEscapeUtils.escapeXml10(media.artist) + "</creator>\r\n" : "") : "";
+							trackList += media != null ? (media.album != null && !media.album.isEmpty() ? "\t\t\t<album>" + StringEscapeUtils.escapeXml10(media.album) + "</album>\r\n" : "") : "";
+							trackList += media != null ? (media.hasArtwork() ? "\t\t\t<image>" + StringEscapeUtils.escapeXml10(curFileLink + "?mediaInfo=1&artwork=1") + "</image>\r\n" : "") : "";
 							trackList += media != null ? "\t\t\t<duration>" + Math.round(media.trackLengthDouble * 1000L) + "</duration>\r\n" : "";
 							trackList += "\t\t\t<extension application=\"http://www.videolan.org/vlc/playlist/0\">\r\n";
 							trackList += "\t\t\t\t<vlc:id>" + numOfMediaFiles + "</vlc:id>\r\n";
@@ -2398,6 +2600,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				clientInfo.requestedFile.lastWriteTime = System.currentTimeMillis();
 				clientInfo.requestedFile.lastWriteAmount = 1;
 				clientInfo.requestedFile.currentWriteAmount = 1;
+				CodeUtil.sleep(10L);
 			}
 			responseStr += trackList;
 			responseStr += "\t</trackList>\r\n";
@@ -2415,7 +2618,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			responseStr += "\t<path>" + StringEscapeUtils.escapeXml10(path.startsWith("/") ? path : "/" + path) + "</path>\r\n";
 			responseStr += "\t<last-modified>" + StringEscapeUtils.escapeXml10(StringUtils.getCacheTime(requestedFile.lastModified())) + "</last-modified>\r\n";
 			responseStr += "\t<subfilesnum>" + files.size() + "</subfilesnum>\r\n";
-			responseStr += "\t<src>" + StringEscapeUtils.escapeXml10(fileLink) + "</src>\r\n";
+			responseStr += "\t<src>" + StringEscapeUtils.escapeXml10(backLink) + "</src>\r\n";
 			responseStr += "\t<client>" + StringEscapeUtils.escapeXml10(clientAddress) + "</client>\r\n";
 			
 			String fileTable = "";
@@ -2430,18 +2633,15 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				if(clientInfo.requestedFile.isPaused) {
 					while(clientInfo.requestedFile.isPaused) {
-						try {
-							Thread.sleep(1);
-						} catch(Throwable ignored) {
-						}
+						CodeUtil.sleep(10L);
 					}
 					if(s.isClosed()) {
 						out.close();
 						return;
 					}
 					if(clientInfo.requestedFile.isCancelled) {
-						//out.close();
-						//s.close();
+						out.close();
+						s.close();
 						return;
 					}
 				}
@@ -2478,7 +2678,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			
 			responseStr += "\t<subfiles>\r\n" + fileTable + "\t</subfiles>\r\n";
 			responseStr += "</directory>";
-		} else if(mediaList && domainDirectory.getEnableMediaListView()) {
+		} else if(mediaViewFlag && domainDirectory.getEnableMediaView()) {
 			String autoplayCheck = request.requestArguments.get("autoplay");
 			boolean autoplay = (autoplayCheck != null ? (autoplayCheck.equals("1") || autoplayCheck.equals("true")) : false);
 			
@@ -2486,6 +2686,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			
 			String fileTable = "";
 			for(Entry<Integer, String> entry : files.entrySet()) {
+				CodeUtil.sleep(10L);
 				Integer i = entry.getKey();
 				String filePath = entry.getValue();
 				if(s.isClosed()) {
@@ -2504,8 +2705,8 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						return;
 					}
 					if(clientInfo.requestedFile.isCancelled) {
-						//out.close();
-						//s.close();
+						out.close();
+						s.close();
 						return;
 					}
 				}
@@ -2526,9 +2727,9 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						final String fileName = FilenameUtils.getName(curInfo.filePath);
 						final String curFileLink = StringUtils.encodeHTML(httpProtocol + request.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
 						final String line1 = "\t\t<string>" + (domainDirectory.getNumberDirectoryEntries() ? "<b>[" + (i.intValue() + 1) + "]:</b> " : "") + "</string><a href=\"" + curFileLink + "\" target=\"_blank\">" + fileName + "</a><br>\r\n";
-						final long random = (new Random()).nextLong();
+						final long random = ThreadLocalRandom.current().nextLong();
 						final String lineEnd = "<hr>\r\n";
-						if(mimeType.startsWith("audio/") || mimeType.startsWith("video/")) {
+						if(isMimeTypeMedia(mimeType)) {
 							fileTable += line1 + //
 							"\t\t<video controls=\"\" preload=\"auto\" " + (autoplay ? "autoplay=\"autoplay\"" : "") + "name=\"" + fileName + "\">\r\n" + //
 							"\t\t\t<source src=\"" + curFileLink + "\" type=\"" + mimeType + "\">\r\n\t\t</video>" + lineEnd;
@@ -2591,7 +2792,143 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			"\t</head>\r\n" + //
 			"\t<body>\r\n" + //
 			"\t\t" + bodyHeader + "\r\n" + //
-			(fileTable.isEmpty() ? "\t\t<string>No media content to display.</string><br>\r\n" : fileTable) + //
+			(fileTable.isEmpty() ? "\t\t<string>No media content to display.</string>&nbsp;<a href=\"" + backLink + "\">Back to " + requestedFile.getName() + "</a><br>\r\n" : "<string>Listing media files(text, images, audio, video, etc.) in <a href=\"" + backLink + "\" title=\"(Click to go back to " + requestedFile.getName() + ")\">" + requestedFile.getName() + "</a>:</string><br>" + fileTable) + //
+			"\t</body>\r\n" + //
+			"</html>";
+		} else if(mediaListFlag && domainDirectory.getEnableMediaList()) {
+			out.println("Expires: " + StringUtil.getCacheTime(System.currentTimeMillis() + 300000L));//5 minutes from now
+			out.println("Content-Type: text/html; charset=UTF-8");//" + info.mimeType);
+			
+			final ArrayList<Integer> filePaths = new ArrayList<>();
+			if(useSortView && !sort.equalsIgnoreCase("fileNames")) {//XXX Media List Sorting
+				if(sort.equalsIgnoreCase("sizes") || sort.equalsIgnoreCase("dates") || sort.equalsIgnoreCase("types")) {
+					HashMap<Integer, FileInfo> fileInfos = new HashMap<>();
+					for(Entry<Integer, String> entry : files.entrySet()) {
+						CodeUtil.sleep(10L);
+						Integer i = entry.getKey();
+						String filePath = entry.getValue();
+						if(s.isClosed()) {
+							out.close();
+							return;
+						}
+						if(filePath == null || filePath.isEmpty()) {
+							continue;
+						}
+						try {
+							String newPath = path + "/" + filePath;
+							if(newPath.startsWith("//")) {
+								newPath = newPath.substring(1);
+							}
+							File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
+							if(file.exists()) {
+								fileInfos.put(i, new FileInfo(file, domainDirectory));
+							}
+						} catch(FileNotFoundException ignored) {
+						} catch(Throwable e) {
+							e.printStackTrace();
+						}
+					}
+					filePaths.clear();
+					while(!fileInfos.isEmpty()) {
+						if(sort.equalsIgnoreCase("sizes")) {
+							filePaths.add(MapUtil.getSmallestFileInfoKeyInHashMapAndRemoveIt(fileInfos));
+						} else if(sort.equalsIgnoreCase("dates")) {
+							filePaths.add(MapUtil.getOldestFileInfoKeyInHashMapAndRemoveIt(fileInfos));
+						} else if(sort.equalsIgnoreCase("types")) {
+							filePaths.add(MapUtil.getLargestMimeTypeAlphabeticallyFromFileInfoKeyInHashMapAndRemoveIt(fileInfos));
+						}
+					}
+					
+				} else if(sort.equalsIgnoreCase("numbers")) {
+					filePaths.addAll(files.keySet());
+				}
+				if((!sort.equalsIgnoreCase("types") && isSortReversed) || (sort.equalsIgnoreCase("types") && !isSortReversed)) {
+					Collections.reverse(filePaths);
+				}
+			}
+			String fileTable = "";
+			for(Entry<Integer, String> entry : files.entrySet()) {
+				CodeUtil.sleep(10L);
+				if(s.isClosed()) {
+					out.close();
+					return;
+				}
+				final Integer i;
+				final String filePath;
+				if(useSortView) {
+					if(!filePaths.isEmpty()) {
+						i = filePaths.remove(0);
+						filePath = files.get(i);
+					} else {
+						continue;
+					}
+				} else {
+					i = entry.getKey();
+					filePath = entry.getValue();
+				}
+				if(clientInfo.requestedFile.isPaused) {
+					while(clientInfo.requestedFile.isPaused) {
+						try {
+							Thread.sleep(1);
+						} catch(Throwable ignored) {
+						}
+					}
+					if(s.isClosed()) {
+						out.close();
+						return;
+					}
+					if(clientInfo.requestedFile.isCancelled) {
+						out.close();
+						s.close();
+						return;
+					}
+				}
+				if(filePath == null || filePath.isEmpty()) {
+					continue;
+				}
+				try {
+					String newPath = path + "/" + filePath;
+					if(newPath.startsWith("//")) {
+						newPath = newPath.substring(1);
+					}
+					final File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
+					if(file.exists()) {
+						final FileInfo curInfo = new FileInfo(file, domainDirectory);
+						if(!isMimeTypeMedia(curInfo.mimeType)) {
+							continue;
+						}
+						final String unAliasedPath = (newPath.startsWith("/") ? "" : "/") + newPath;
+						final String fileName = FilenameUtils.getName(curInfo.filePath);
+						final String fileReqPath = StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath));
+						final String curFileLink = StringUtils.encodeHTML(httpProtocol + request.host + fileReqPath);
+						fileTable += "\t\t<div>" + (domainDirectory.getNumberDirectoryEntries() ? "<b>[" + (i.intValue() + 1) + "]:</b> " : "") + "<a href=\"" + curFileLink + "\" target=\"_blank\" name=\"" + fileName + "\">" + fileName + "</a><br>\r\n" + //
+						"\t\t\t" + MediaReader.getMediaInfoHTMLFor(file, domainDirectory.getDirectory().getAbsolutePath()).replace("{0}", fileReqPath) + "\r\n" + //
+						"\t\t</div><hr>\r\n";
+					}
+				} catch(FileNotFoundException ignored) {
+				} catch(Throwable e) {
+					e.printStackTrace();
+				}
+				clientInfo.requestedFile.bytesTransfered++;
+				clientInfo.requestedFile.lastWriteTime = System.currentTimeMillis();
+				clientInfo.requestedFile.lastWriteAmount = 1;
+				clientInfo.requestedFile.currentWriteAmount = 1;
+			}
+			
+			responseStr = "<!DOCTYPE html>\r\n" + //
+			"<html>\r\n" + //
+			"\t<head>\r\n" + //
+			"\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n" + //
+			"\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n" + //
+			"\t\t<link rel=\"shortcut icon\" href=\"" + domainDirectory.getDefaultPageIcon() + "\" type=\"image/x-icon\">\r\n" + //
+			"\t\t<title>" + folderName + " - " + domainDirectory.getServerName() + "</title>\r\n" + //
+			"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
+			(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
+			(fileTable.isEmpty() ? "" : AUTO_RESIZE_JAVASCRIPT) + //
+			"\t</head>\r\n" + //
+			"\t<body>\r\n" + //
+			"\t\t" + bodyHeader + "\r\n" + //
+			(fileTable.isEmpty() ? "\t\t<string>No media content to display.</string>&nbsp;<a href=\"" + backLink + "\">Back to " + requestedFile.getName() + "</a><br>\r\n" : "<string>Listing tag information for media files in <a href=\"" + backLink + "\" title=\"(Click to go back to " + requestedFile.getName() + ")\">" + requestedFile.getName() + "</a>:</string><br>" + fileTable) + //
 			"\t</body>\r\n" + //
 			"</html>";
 		} else {
@@ -2610,21 +2947,22 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				String dateSortLink = "<b><a href=\"" + link + "sort=" + (sort.equalsIgnoreCase("dates") && !isSortReversed ? "-" : "") + "dates\" color=\"#000000\"" + linkTarget + ">Date" + (sort.equalsIgnoreCase("dates") ? triangleStr : "") + "</a></b>";
 				String typeSortLink = "<b><a href=\"" + link + "sort=" + (sort.equalsIgnoreCase("types") && !isSortReversed ? "-" : "") + "types\" color=\"#000000\"" + linkTarget + ">Type" + (sort.equalsIgnoreCase("types") ? triangleStr : "") + "</a></b>";
 				
-				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + numberSortLink + "</td><td>&nbsp;&nbsp;&nbsp;</td>" : "") + "<td>" + fileNameSortLink + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + sizeSortLink + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + dateSortLink + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + typeSortLink + "</td>" + (enableMediaInfo ? "</td><td>&nbsp;&nbsp;&nbsp;</td><td><b>Media Information</b></td>" : "") + "</tr>\r\n";
+				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + numberSortLink + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td>" + fileNameSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + sizeSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + dateSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + typeSortLink + "</td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td><b>Media Information</b></td>" : "") + "</tr>\r\n";
 			} else {
-				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td><b>#</b></td><td>&nbsp;&nbsp;&nbsp;</td>" : "") + "<td><b>File Name</b></td><td>&nbsp;&nbsp;&nbsp;</td><td><b>Size</b></td><td>&nbsp;&nbsp;&nbsp;</td><td><b>Date</b></td><td>&nbsp;&nbsp;&nbsp;</td><td><b>Type</b></td>" + (enableMediaInfo ? "</td><td>&nbsp;&nbsp;&nbsp;</td><td><b>Media Information</b></td>" : "") + "</tr>\r\n";
+				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td><b>#</b></td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><b>File Name</b></td><td>" + nonBreakingSpaces + "</td><td><b>Size</b></td><td>" + nonBreakingSpaces + "</td><td><b>Date</b></td><td>" + nonBreakingSpaces + "</td><td><b>Type</b></td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td><b>Media Information</b></td>" : "") + "</tr>\r\n";
 			}
 			
 			if(parentFileLink != null) {
 				FileInfo curInfo = new FileInfo(parentFile, domainDirectory);
-				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>(-)</td><td>&nbsp;</td>" : "") + "<td><a href=\"" + parentFileLink + (!wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + "><b>../(Up)</b></a></td><td>&nbsp;</td><td>" + curInfo.contentLength + "</td><td>&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;</td><td>" + curInfo.mimeType + (RestrictedFile.isFileForbidden(parentFile) ? "\t\t(Forbidden)" : "") + "</td>" + (enableMediaInfo ? "</td><td>&nbsp;&nbsp;&nbsp;</td><td>(-)</td>" : "") + "</tr>\r\n";
+				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>(-)</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + parentFileLink + (!wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + "><b>../(Up)</b></a></td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.mimeType + (RestrictedFile.isFileForbidden(parentFile) ? "\t\t(Forbidden)" : "") + "</td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td>(-)</td>" : "") + "</tr>\r\n";
 			}
 			final ArrayList<Integer> folderPaths = new ArrayList<>();
 			final ArrayList<Integer> filePaths = new ArrayList<>();
 			if(useSortView && !sort.equalsIgnoreCase("fileNames")) {//XXX Sorting
 				if(sort.equalsIgnoreCase("sizes") || sort.equalsIgnoreCase("dates") || sort.equalsIgnoreCase("types")) {
-					final HashMap<Integer, FileInfo> fileInfos = new HashMap<>();
+					HashMap<Integer, FileInfo> fileInfos = new HashMap<>();
 					for(Entry<Integer, String> entry : files.entrySet()) {
+						CodeUtil.sleep(10L);
 						Integer i = entry.getKey();
 						String filePath = entry.getValue();
 						if(s.isClosed()) {
@@ -2668,6 +3006,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 			} else if(domainDirectory.getListDirectoriesFirst()) {//XXX Sorting folders and files in order
 				for(Entry<Integer, String> entry : files.entrySet()) {
+					CodeUtil.sleep(10L);
 					Integer i = entry.getKey();
 					String filePath = entry.getValue();
 					if(s.isClosed()) {
@@ -2712,6 +3051,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				filePaths.addAll(folderPathsCopy);
 			}
 			for(Entry<Integer, String> entry : files.entrySet()) {
+				CodeUtil.sleep(10L);
 				if(s.isClosed()) {
 					out.close();
 					return;
@@ -2745,10 +3085,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				if(clientInfo.requestedFile.isPaused) {
 					while(clientInfo.requestedFile.isPaused) {
-						try {
-							Thread.sleep(1);
-						} catch(Throwable ignored) {
-						}
+						CodeUtil.sleep(10L);
 					}
 					if(s.isClosed()) {
 						out.close();
@@ -2777,10 +3114,10 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						String extraViewStr = "";
 						if(domainDirectory.getEnableReadableFileViews()) {
 							if(curInfo.mimeType.equalsIgnoreCase("application/epub+zip") || curInfo.mimeType.equalsIgnoreCase("application/rtf") || curInfo.mimeType.equalsIgnoreCase("text/rtf")) {
-								extraViewStr = "&nbsp;&nbsp;&nbsp;<a href=\"" + curFileLink + "?displayFile=1\"" + linkTarget + "><b>*** Readable View ***</b></a>";
+								extraViewStr = nonBreakingSpaces + "<a href=\"" + curFileLink + "?displayFile=1\"" + linkTarget + "><b>*** Readable View ***</b></a>";
 							}
 						}
-						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + curInfo.fileName + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>&nbsp;</td><td>" + curInfo.contentLength + "</td><td>&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;</td><td>" + mimeType + "</td>" + (enableMediaInfo && (curInfo.mimeType.toLowerCase().startsWith("audio/") || curInfo.mimeType.toLowerCase().startsWith("video/")) ? "</td><td>&nbsp;&nbsp;&nbsp;</td><td><b><a href=\"" + curFileLink + "?mediaInfo=1\" title=\"(Opens in new tab/window)\" target=\"_blank\">Media Tags</a></b></td>" : "") + "</tr>\r\n";
+						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + curInfo.fileName + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + mimeType + "</td>" + (enableMediaInfo && isMimeTypeMedia(curInfo.mimeType) ? "</td><td>" + nonBreakingSpaces + "</td><td><b><a href=\"" + curFileLink + "?mediaInfo=1\" title=\"(Opens in new tab/window)\" target=\"_blank\">Media Tags</a></b></td>" : "") + "</tr>\r\n";
 					}
 				} catch(FileNotFoundException ignored) {
 				} catch(Throwable e) {
@@ -3042,7 +3379,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								+ "\t\t<string>" + (exists ? "Unable to delete the " + fileOrFolder + ". Please try again!(Is it a system file?)" : "Sucessfully deleted " + fileOrFolder + " &quot;" + reqFileName + "&quot;" + (parentFile != null ? " from parent folder &quot;" + parentFile.getName() + "&quot;" : "") + ".") + "</string><br>\r\n"//
 								+ "\t\t" + actionAnchors + "\r\n"//
 								/*+ "\t\t<string>Are you sure you wish to delete this folder?</string><br>\r\n"//
-								+ "\t\t" + confirmButton + "&nbsp;&nbsp;&nbsp;" + cancelButton + "\r\n"//*/
+								+ "\t\t" + confirmButton + "" + nonBreakingSpaces + "" + cancelButton + "\r\n"//*/
 								+ "\t</body>\r\n</html>";
 					} else if(renameFile) {
 						if(FilenameUtils.normalize(requestedFile.getAbsolutePath()).equals(homeDirPath)) {
@@ -3163,6 +3500,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 							if(c != null) {
 								int j = 0;
 								for(int i = 0; i < c.length; i++) {
+									CodeUtil.sleep(10L);
 									boolean doIt = true;
 									String fileName = c[i];
 									File file = new File(requestedFile, fileName);
@@ -3183,12 +3521,13 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 							}
 							fileTable += "\t\t<table border=\"2\" cellpadding=\"3\" cellspacing=\"1\">\r\n";
 							fileTable += "\t\t\t<tbody>\r\n";
-							fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td><b>#</b></td><td>&nbsp;&nbsp;&nbsp;</td>" : "") + "<td><b>File Name</b></td><td>&nbsp;&nbsp;&nbsp;</td><td><b>Size</b></td><td>&nbsp;&nbsp;&nbsp;</td><td><b>Date</b></td><td>&nbsp;&nbsp;&nbsp;</td><td><b>Type</b></td><td>&nbsp;&nbsp;&nbsp;</td><td><b>(Management)</b></td></tr>\r\n";
+							fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td><b>#</b></td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><b>File Name</b></td><td>" + nonBreakingSpaces + "</td><td><b>Size</b></td><td>" + nonBreakingSpaces + "</td><td><b>Date</b></td><td>" + nonBreakingSpaces + "</td><td><b>Type</b></td><td>" + nonBreakingSpaces + "</td><td><b>(Management)</b></td></tr>\r\n";
 							
 							ArrayList<Integer> folderPaths = new ArrayList<>();
 							ArrayList<Integer> filePaths = new ArrayList<>();
 							if(domainDirectory.getListDirectoriesFirst()) {
 								for(Entry<Integer, String> entry : files.entrySet()) {
+									CodeUtil.sleep(10L);
 									Integer i = entry.getKey();
 									String filePath = entry.getValue();
 									if(filePath == null || filePath.isEmpty()) {
@@ -3213,9 +3552,10 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								}
 							}
 							if(parentFileLink != null) {
-								fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>(-)</td><td>&nbsp;&nbsp;&nbsp;</td>" : "") + "<td><a href=\"" + parentFileLink + "?administrateFile=1\"><b>../(Up)</b></a></td><td>&nbsp;&nbsp;&nbsp;</td><td>" + info.contentLength + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + info.lastModified + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + info.mimeType + (RestrictedFile.isFileForbidden(parentFile) ? "\t\t(Forbidden)" : "") + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>(-)</td></tr>\r\n";
+								fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>(-)</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + parentFileLink + "?administrateFile=1\"><b>../(Up)</b></a></td><td>" + nonBreakingSpaces + "</td><td>" + info.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + info.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + info.mimeType + (RestrictedFile.isFileForbidden(parentFile) ? "\t\t(Forbidden)" : "") + "</td><td>" + nonBreakingSpaces + "</td><td>(-)</td></tr>\r\n";
 							}
 							for(Entry<Integer, String> entry : files.entrySet()) {
+								CodeUtil.sleep(10L);
 								final Integer i;
 								final String fileName;
 								if(domainDirectory.getListDirectoriesFirst()) {
@@ -3256,7 +3596,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 									} else {
 										name = "<i><a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + fileName + "\">" + name + "</a></i>";
 									}
-									fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>&nbsp;&nbsp;&nbsp;</td>" : "") + "<td>" + name + "</td><td>" + (file.isDirectory() ? "&nbsp;&nbsp;&nbsp;" : "<a href=\"" + curFileLink + "\" download=\"" + fileName + "\" target=\"_blank\" rel=\"nofollow\">Download</a>") + "</td><td>" + curInfo.contentLength + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + curInfo.lastModified + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + mimeType + "</td><td>&nbsp;&nbsp;&nbsp;</td><td>" + managementStr + "</td></tr>\r\n";
+									fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td>" + name + "</td><td>" + (file.isDirectory() ? nonBreakingSpaces : "<a href=\"" + curFileLink + "\" download=\"" + fileName + "\" target=\"_blank\" rel=\"nofollow\">Download</a>") + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + mimeType + "</td><td>" + nonBreakingSpaces + "</td><td>" + managementStr + "</td></tr>\r\n";
 								}
 							}
 							fileTable += "\t\t\t</tbody>\r\n";
@@ -3844,7 +4184,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 										if(res.getUUID() != null) {
 											final String uuid = res.getUUID().toString();
 											String filePath = res.getRestrictedFile().getAbsolutePath();
-											response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?restrictedFile=" + uuid + "\">" + filePath + "</a></td><td>&nbsp;&nbsp;&nbsp;</td><td><a href=\"" + mainPageLink + "?deleteResFile=" + uuid + "\" onClick=\"return confirm('Are you sure you want to remove the restriction from the file &quot;" + filePath + "&quot;? This cannot be undone.');\">Remove Restriction</a></td></tr>\r\n");
+											response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?restrictedFile=" + uuid + "\">" + filePath + "</a></td><td>" + nonBreakingSpaces + "</td><td><a href=\"" + mainPageLink + "?deleteResFile=" + uuid + "\" onClick=\"return confirm('Are you sure you want to remove the restriction from the file &quot;" + filePath + "&quot;? This cannot be undone.');\">Remove Restriction</a></td></tr>\r\n");
 										}
 									}
 									response.appendResponse("\t\t\t</tbody>\r\n");
@@ -3872,7 +4212,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 									for(DomainDirectory domain : DomainDirectory.getInstances()) {
 										if(domain.uuid.getValue() != null) {
 											final String uuid = domain.uuid.getValue().toString();
-											response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?domain=" + uuid + "\">" + domain.getDisplayName() + "</a></td><td>&nbsp;&nbsp;&nbsp;</td><td><a href=\"" + mainPageLink + "?deleteDomain=" + uuid + "\" onClick=\"return confirm('Are you sure you want to delete the domain &quot;" + domain.getDomain() + "&quot;? This cannot be undone.');\">Delete</a></td></tr>\r\n");
+											response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?domain=" + uuid + "\">" + domain.getDisplayName() + "</a></td><td>" + nonBreakingSpaces + "</td><td><a href=\"" + mainPageLink + "?deleteDomain=" + uuid + "\" onClick=\"return confirm('Are you sure you want to delete the domain &quot;" + domain.getDomain() + "&quot;? This cannot be undone.');\">Delete</a></td></tr>\r\n");
 										}
 									}
 									
@@ -3981,7 +4321,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableAlternateDirectoryListingViews:</b></td><td><select name=\"" + domain.enableAlternateDirectoryListingViews.getName() + "\">" + (domain.enableAlternateDirectoryListingViews.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableFilterView:</b></td><td><select name=\"" + domain.enableFilterView.getName() + "\">" + (domain.enableFilterView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableSortViews:</b></td><td><select name=\"" + domain.enableSortView.getName() + "\">" + (domain.enableSortView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
-									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableMediaListView:</b></td><td><select name=\"" + domain.enableMediaListView.getName() + "\">" + (domain.enableMediaListView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
+									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableMediaView:</b></td><td><select name=\"" + domain.enableMediaView.getName() + "\">" + (domain.enableMediaView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableReadableFileViews:</b></td><td><select name=\"" + domain.enableReadableFileViews.getName() + "\">" + (domain.enableReadableFileViews.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableVLCPlaylistView:</b></td><td><select name=\"" + domain.enableVLCPlaylistView.getName() + "\">" + (domain.enableVLCPlaylistView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableXmlListView:</b></td><td><select name=\"" + domain.enableXmlListView.getName() + "\">" + (domain.enableXmlListView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
@@ -4018,7 +4358,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 										if(forum.getUUID() != null) {
 											final String forumName = forum.getName();
 											final String uuid = forum.getUUID().toString();
-											response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?forum=" + uuid + "\">" + forumName + "</a></td><td>&nbsp;&nbsp;&nbsp;</td><td><a href=\"" + mainPageLink + "?deleteForum=" + uuid + "\" onClick=\"return confirm('Are you sure you want to delete the forum &quot;" + forumName + "&quot;? This cannot be undone.');\">Delete</a></td></tr>\r\n");
+											response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?forum=" + uuid + "\">" + forumName + "</a></td><td>" + nonBreakingSpaces + "</td><td><a href=\"" + mainPageLink + "?deleteForum=" + uuid + "\" onClick=\"return confirm('Are you sure you want to delete the forum &quot;" + forumName + "&quot;? This cannot be undone.');\">Delete</a></td></tr>\r\n");
 										}
 									}
 									response.appendResponse("\t\t\t</tbody>\r\n");
@@ -4149,7 +4489,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 																response.appendResponse("\t\t\t<tbody>\r\n");
 																//
 																for(ForumComment comment : topic.getComments()) {
-																	response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + boardUUID + "&topic=" + topicUUID + "&comment=" + comment.getUUID().toString() + "\">Comment #" + comment.getNumber() + "</a></td><td>&nbsp;&nbsp;&nbsp;</td><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + boardUUID + "&topic=" + topicUUID + "&deleteComment=" + comment.getUUID().toString() + "\" onClick=\"return confirm('Are you sure you want to delete comment #" + comment.getNumber() + "? This cannot be undone.');\">Delete</a></td></tr>\r\n");
+																	response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + boardUUID + "&topic=" + topicUUID + "&comment=" + comment.getUUID().toString() + "\">Comment #" + comment.getNumber() + "</a></td><td>" + nonBreakingSpaces + "</td><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + boardUUID + "&topic=" + topicUUID + "&deleteComment=" + comment.getUUID().toString() + "\" onClick=\"return confirm('Are you sure you want to delete comment #" + comment.getNumber() + "? This cannot be undone.');\">Delete</a></td></tr>\r\n");
 																}
 																response.appendResponse("\t\t\t</tbody>\r\n");
 																response.appendResponse("\t\t</table><hr>\r\n");
@@ -4229,7 +4569,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 														response.appendResponse("\t\t\t<tbody>\r\n");
 														//
 														for(ForumTopic topic : board.getTopics()) {
-															response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + boardUUID + "&topic=" + topic.getUUID().toString() + "\">" + topic.getTitle() + "</a></td><td>&nbsp;&nbsp;&nbsp;</td><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + boardUUID + "&deleteTopic=" + topic.getUUID().toString() + "\" onClick=\"return confirm('Are you sure you want to delete the forum topic &quot;" + topic.getTitle().replace("'", "-").replace("\"", "-") + "&quot;? This cannot be undone.');\">Delete</a></td></tr>\r\n");
+															response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + boardUUID + "&topic=" + topic.getUUID().toString() + "\">" + topic.getTitle() + "</a></td><td>" + nonBreakingSpaces + "</td><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + boardUUID + "&deleteTopic=" + topic.getUUID().toString() + "\" onClick=\"return confirm('Are you sure you want to delete the forum topic &quot;" + topic.getTitle().replace("'", "-").replace("\"", "-") + "&quot;? This cannot be undone.');\">Delete</a></td></tr>\r\n");
 														}
 														response.appendResponse("\t\t\t</tbody>\r\n");
 														response.appendResponse("\t\t</table><hr>\r\n");
@@ -4312,7 +4652,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 												response.appendResponse("\t\t\t<tbody>\r\n");
 												//
 												for(ForumBoard board : forum.getBoards()) {
-													response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + board.getUUID().toString() + "\">" + board.getName() + "</a></td><td>&nbsp;&nbsp;&nbsp;</td><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&deleteBoard=" + board.getUUID().toString() + "\" onClick=\"return confirm('Are you sure you want to delete the forum board &quot;" + board.getName() + "&quot;? This cannot be undone.');\">Delete</a></td></tr>\r\n");
+													response.appendResponse("\t\t\t\t<tr><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&board=" + board.getUUID().toString() + "\">" + board.getName() + "</a></td><td>" + nonBreakingSpaces + "</td><td><a href=\"" + mainPageLink + "?forum=" + forumUUID + "&deleteBoard=" + board.getUUID().toString() + "\" onClick=\"return confirm('Are you sure you want to delete the forum board &quot;" + board.getName() + "&quot;? This cannot be undone.');\">Delete</a></td></tr>\r\n");
 												}
 												response.appendResponse("\t\t\t</tbody>\r\n");
 												response.appendResponse("\t\t</table><hr>\r\n");
@@ -4442,7 +4782,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableAlternateDirectoryListingViews:</b></td><td><select name=\"" + domain.enableAlternateDirectoryListingViews.getName() + "\">" + (domain.enableAlternateDirectoryListingViews.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableFilterView:</b></td><td><select name=\"" + domain.enableFilterView.getName() + "\">" + (domain.enableFilterView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableSortViews:</b></td><td><select name=\"" + domain.enableSortView.getName() + "\">" + (domain.enableSortView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
-									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableMediaListView:</b></td><td><select name=\"" + domain.enableMediaListView.getName() + "\">" + (domain.enableMediaListView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
+									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableMediaView:</b></td><td><select name=\"" + domain.enableMediaView.getName() + "\">" + (domain.enableMediaView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableReadableFileViews:</b></td><td><select name=\"" + domain.enableReadableFileViews.getName() + "\">" + (domain.enableReadableFileViews.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableVLCPlaylistView:</b></td><td><select name=\"" + domain.enableVLCPlaylistView.getName() + "\">" + (domain.enableVLCPlaylistView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>EnableXmlListView:</b></td><td><select name=\"" + domain.enableXmlListView.getName() + "\">" + (domain.enableXmlListView.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
@@ -4837,7 +5177,15 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			s.close();
 			return new RequestResult(request, false, null);
 		} catch(IOException e) {
-			println("\t /!\\\tFailed respond to client request: \"" + clientAddress + "\"\r\n\t/___\\\tCause: " + e.getMessage());
+			if(e.getMessage() != null) {
+				if(e.getMessage().equalsIgnoreCase("Client sent no data.")) {
+					if(request != null) {
+						request.cancel();
+					}
+					return new RequestResult(request, false, null);
+				}
+			}
+			println("\t /!\\\tFailed to respond to client request: \"" + clientAddress + "\"\r\n\t/___\\\tCause: " + e.getMessage());
 			return new RequestResult(request, false, e);
 		}
 	}
@@ -5120,6 +5468,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			serverToClientThread.start();
 			//long timeCheck = System.currentTimeMillis();
 			while(serverActive) {
+				CodeUtil.sleep(10L);
 				if(clientException.getValue() != null) {
 					throw clientException.getValue();
 				}
@@ -5229,7 +5578,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			} catch(IOException ignored) {
 			}
 			NaughtyClientData naughty = getBannedClient(getClientAddress);
-			println("Kicked client with ip: " + getClientAddress + "\r\n\tReason: " + (naughty != null ? "\"" + naughty.banReason + "\"" : "Unknown"));
+			println("Kicked client with ip: " + getClientAddress + "\r\n\tReason: " + (naughty != null ? "\"" + naughty.banReason + "\"" : "Unknown(no ban data found!)"));
 			return new RequestResult(null, false, null);
 		}
 		final ClientConnectTime cct = getClientConnectTimeFor(getClientAddress);
@@ -5254,7 +5603,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				request.acceptClientRequest(requestTimeout, reuse);//request = HTTPClientRequest.getClientRequest(s, in, requestTimeout, reuse);//new HTTPClientRequest(s, in);
 			} catch(NumberFormatException e) {
 				request.status.removeFromList();
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No Content-Length Header defined.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No Content-Length Header defined.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 400: No \"Content-Length:\" header defined.").sendToClient(s, true);
 				return new RequestResult(null, reuse, null);
 			} catch(UnsupportedEncodingException e) {
 				request.status.removeFromList();
@@ -5275,6 +5624,22 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				ResponseUtil.send408Response(s, getClientAddress);
 				request.cancel();
 				return new RequestResult(null, false, null);//reuse, null);
+			} catch(Throwable e) {
+				request.status.removeFromList();
+				if(e.getMessage() != null) {
+					if(e.getMessage().equalsIgnoreCase("Client sent no data.")) {
+						ResponseUtil.send408Response(s, getClientAddress);
+						request.cancel();
+						return new RequestResult(null, false, null);
+					} else if(e.getMessage().equalsIgnoreCase("Software caused connection abort: recv failed")) {
+						request.cancel();
+						return new RequestResult(null, false, null);
+					}
+				}
+				new HTTPServerResponse("HTTP/1.1", HTTP_500, false, StandardCharsets.UTF_8).setStatusMessage("An unhandled exception has occurred.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 500: " + e.getMessage()).sendToClient(s, true);
+				e.printStackTrace();
+				request.cancel();
+				return new RequestResult(null, reuse, null);
 			}
 			PrintUtil.unclearLogsBeforeDisplay();
 			PrintUtil.unclearErrLogsBeforeDisplay();
@@ -5828,8 +6193,15 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			return new RequestResult(request, reuse, null);
 		} catch(IOException e) {
 			ioException = e;
-			if(HTTPClientRequest.debug || (e.getMessage() != null && !e.getMessage().equals("Socket Closed") && !e.getMessage().equals("Software caused connection abort: recv failed"))) {
-				println("\t /!\\\tFailed respond to client request: \"" + getClientAddress + "\"\r\n\t/___\\\tCause: " + e.getMessage());
+			final String errMsg = e.getMessage();
+			if(errMsg != null && (errMsg.equalsIgnoreCase("Socket Closed") || errMsg.equalsIgnoreCase("Client sent no data.") || errMsg.equalsIgnoreCase("Software caused connection abort: recv failed"))) {
+				PrintUtil.clearLogs();
+				PrintUtil.clearErrLogs();
+				connectedClients.remove(clientInfo);
+				return new RequestResult(null, false, ioException);
+			}
+			if(HTTPClientRequest.debug) {
+				println("\t /!\\\tFailed to respond to client request: \"" + getClientAddress + "\"\r\n\t/___\\\tCause: " + (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
 			} else {
 				PrintUtil.clearLogs();
 				PrintUtil.clearErrLogs();

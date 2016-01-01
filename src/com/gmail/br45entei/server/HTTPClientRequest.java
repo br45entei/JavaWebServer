@@ -7,6 +7,7 @@ import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FormURLEncodedData;
 import com.gmail.br45entei.server.data.MultipartFormData;
 import com.gmail.br45entei.util.AddressUtil;
+import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.StringUtil;
 import com.gmail.br45entei.util.StringUtils;
@@ -114,7 +115,7 @@ public class HTTPClientRequest {
 			status.markReadTime();
 			String r = new String(new byte[] {(byte) read});
 			line += r;
-			if(r.equals("\n") || read == -1) {
+			if(r.equals("\n") || read == -1 || line.length() > 16038) {
 				break;
 			}
 		}
@@ -150,12 +151,12 @@ public class HTTPClientRequest {
 	}
 	
 	protected static final class ReqHolder {
-		private HTTPClientRequest			request	= null;
-		public IOException					e1;
-		public NumberFormatException		e2;
-		public UnsupportedEncodingException	e3;
-		public OutOfMemoryError				e4;
-		public CancellationException		e5;
+		private HTTPClientRequest		request	= null;
+		public IOException				e1;
+		public NumberFormatException	e2;
+		//public UnsupportedEncodingException	e3;
+		public OutOfMemoryError			e4;
+		public CancellationException	e5;
 		
 		public final void setValue(HTTPClientRequest request) {
 			this.request = request;
@@ -167,7 +168,7 @@ public class HTTPClientRequest {
 		
 	}
 	
-	public final void acceptClientRequest(long timeout, boolean wasReused) throws IOException, NumberFormatException, UnsupportedEncodingException, TimeoutException, OutOfMemoryError, CancellationException {
+	public final void acceptClientRequest(long timeout, boolean wasReused) throws IOException, NumberFormatException, TimeoutException, OutOfMemoryError, CancellationException {
 		long startTime = System.currentTimeMillis();
 		final ReqHolder req = new ReqHolder();
 		req.setValue(this);
@@ -179,7 +180,7 @@ public class HTTPClientRequest {
 				try {
 					HTTPClientRequest.this.parseRequest();
 				} catch(UnsupportedEncodingException e) {
-					req.e3 = e;
+					//req.e3 = e;
 				} catch(IOException e) {
 					req.e1 = e;
 				} catch(NumberFormatException e) {
@@ -217,9 +218,9 @@ public class HTTPClientRequest {
 			} else if(req.e2 != null) {
 				this.status.removeFromList();
 				throw req.e2;
-			} else if(req.e3 != null) {
-				this.status.removeFromList();
-				throw req.e3;
+				/*} else if(req.e3 != null) {
+					this.status.removeFromList();
+					throw req.e3;*/
 			} else if(req.e4 != null) {
 				this.status.removeFromList();
 				throw req.e4;
@@ -250,11 +251,12 @@ public class HTTPClientRequest {
 		this.status = new ClientRequestStatus(s, 0);
 	}
 	
-	protected final void parseRequest() throws IOException, NumberFormatException, UnsupportedEncodingException, OutOfMemoryError, CancellationException {
+	protected final void parseRequest() throws IOException, NumberFormatException, OutOfMemoryError, CancellationException {
 		final String clientAddress = this.status.getClientAddress();
 		//final String clientIP = AddressUtil.getClientAddressNoPort(clientAddress);
 		int i = 0;
 		while(!this.status.isCancelled()) {
+			CodeUtil.sleep(8L);
 			final String line = readLine(this.in, this.status);
 			this.status.setStatus("Receiving client request...");
 			this.status.markReadTime();
@@ -285,6 +287,7 @@ public class HTTPClientRequest {
 					//If the majority of browsers fix the issue where they don't display data sent from servers while they are uploading files, then I could put a check here to see if the client is uploading multipart/form-data and then check if they are authenticated. For now, bandwidth will have to be wasted and the client will complete the file upload only to find out that they require authorization...
 					this.postRequestData = new byte[contentLength];
 					for(int j = 0; j < this.postRequestData.length; j++) {
+						CodeUtil.sleep(8L);
 						if(this.status.isPaused()) {
 							String lastStatus = this.status.getStatus();
 							while(this.status.isPaused()) {
@@ -293,10 +296,7 @@ public class HTTPClientRequest {
 									break;
 								}
 								this.status.markReadTime();
-								try {
-									Thread.sleep(1L);
-								} catch(Throwable ignored) {
-								}
+								CodeUtil.sleep(8L);
 							}
 							this.status.setStatus(lastStatus);
 						}
@@ -331,7 +331,7 @@ public class HTTPClientRequest {
 						out.flush();
 						out.close();
 					}
-					if(!this.isProxyRequest) {//We don't want to mess with the proxy requests' post data.
+					if(!this.isProxyRequest) {//We don't want to mess with the proxy requests' post data. That would kinda be, well, snooping.
 						if(this.contentType.toLowerCase().contains("multipart/form-data")) {
 							this.status.setStatus("Parsing client multipart/form-data...");
 							BasicAuthorizationResult authResult = JavaWebServer.authenticateBasicForServerAdministration(this, JavaWebServer.useCookieAuthentication);
@@ -612,6 +612,7 @@ public class HTTPClientRequest {
 							proxyIP = pvalue.trim();
 						}
 					}
+					CodeUtil.sleep(4L);
 				}
 			}
 			this.clientIP = clientIP;

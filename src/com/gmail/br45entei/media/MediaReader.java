@@ -1,7 +1,6 @@
 package com.gmail.br45entei.media;
 
 import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
-import com.gmail.br45entei.server.HTTPClientRequest;
 
 import java.awt.image.BufferedImage;
 import java.io.Closeable;
@@ -17,9 +16,12 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
 
+import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.exceptions.CannotReadException;
@@ -82,13 +84,24 @@ public class MediaReader {
 		disableLogger(global);
 	}
 	
-	public static final synchronized MediaInfo readFile(File file, boolean getArtwork) throws Throwable {
+	private static final synchronized MediaInfo readFileNoDispose(File file, boolean getArtwork) throws Throwable {
 		if(file == null || !file.isFile()) {
 			return null;
 		}
 		disableLogging();
+		System.setOut(dumpOut);
+		System.setErr(dumpErr);
 		AudioFile afile = AudioFileIO.read(file);
-		return afile == null ? null : new MediaInfo(afile, getArtwork);
+		MediaInfo rtrn = afile == null ? null : new MediaInfo(afile, getArtwork);
+		System.setOut(out);
+		System.setErr(err);
+		return rtrn;
+	}
+	
+	public static final synchronized MediaInfo readFile(File file, boolean getArtwork) throws Throwable {
+		MediaInfo rtrn = readFileNoDispose(file, getArtwork);
+		dOut.dispose();
+		return rtrn;
 	}
 	
 	public static final byte[] readFileArtworkAsPNG(File file) {
@@ -116,6 +129,14 @@ public class MediaReader {
 			e.printStackTrace();
 		}
 		return readFileArtworkAsPNG(afile);
+	}
+	
+	public static final boolean doesFileHaveArtwork(AudioFile afile) {
+		if(afile == null) {
+			return false;
+		}
+		List<Artwork> artworkList = afile.getTag().getArtworkList();
+		return artworkList.size() > 0;
 	}
 	
 	public static final Artwork getLargestArtworkFromAudioFile(AudioFile afile) {
@@ -177,39 +198,42 @@ public class MediaReader {
 		return data;
 	}
 	
-	public static final synchronized String getMediaInfoHTMLFor(File file, HTTPClientRequest request) {//TODO Make this better! Maybe a button that you click that shows a little closable window with media infos in it?
-		String rtrn = "<string>Unable to parse file &quot;{0}&quot;'s media tags.</string>";
+	public static final synchronized String getMediaInfoHTMLFor(File file, String homeDirectory) {//TODO Make this better! Maybe a button that you click that shows a little closable window with media infos in it?
+		String rtrn = "<string>Unable to parse file (&quot;{0}&quot;)'s media tags.</string>";
 		boolean success = false;
 		String error = null;
 		if(file != null && file.isFile()) {
 			MediaInfo info = null;
-			System.setOut(dumpOut);
-			System.setErr(dumpErr);
+			String filePath = FilenameUtils.normalize(file.getAbsolutePath());
+			homeDirectory = homeDirectory == null ? null : FilenameUtils.normalize(homeDirectory);
+			final String requestedFilePath = homeDirectory == null ? "" : StringUtils.replacePattern(filePath, "(?i)" + Pattern.quote(homeDirectory), "/").replace("\\", "/").replace("//", "/");
+			
 			try {
-				info = readFile(file, request != null);
+				info = readFileNoDispose(file, homeDirectory != null);
 			} catch(Throwable e) {
 				e.printStackTrace();
 			}
 			if(info != null) {
 				success = true;
 				rtrn = "<pre>" + info.toString() + "</pre>";
-				if(request != null) {
+				if(homeDirectory != null) {
 					MediaArtwork artwork = info.getAlbumArtwork();
 					if(artwork != null) {
-						rtrn += "\r\n\t\t<img style=\"-webkit-user-select: none\" src=\"" + request.requestedFilePath + "?mediaInfo=1&artwork=1\"" + (artwork.width > 0 ? " width=\"" + artwork.width + "\"" : "") + (artwork.height > 0 ? " height=\"" + artwork.height + "\"" : "") + "><br>\r\n";
+						rtrn += "\r\n\t\t<img style=\"-webkit-user-select: none\" src=\"" + requestedFilePath + "?mediaInfo=1&artwork=1\"" + (artwork.width > 0 ? " width=\"" + artwork.width + "\"" : "") + (artwork.height > 0 ? " height=\"" + artwork.height + "\"" : "") + "><br>\r\n";
 						artwork.close();
 					}
 				}
 				info.close();
 			}
-			System.setOut(out);
-			System.setErr(err);
 			if(dOut.size() > 0) {
 				error = new String(dOut.toByteArray(), StandardCharsets.UTF_8);
+				if(error.contains(file.getAbsolutePath())) {
+					error = error.replace(file.getAbsolutePath(), homeDirectory != null ? requestedFilePath : file.getName());
+				}
 			}
 			dOut.dispose();
 		}
-		return rtrn + (!success && error != null ? ("\r\n<br><string>Reason:&nbsp;</string><pre>" + error + "</pre>") : (error != null ? "\r\n<hr><string>Operation completed with warnings:&nbsp;</string><pre>" + error + "</pre>" : ""));
+		return rtrn + (!success && error != null ? ("\r\n<br><string>Reason:&nbsp;</string><pre>" + error + "</pre>") : (error != null ? "\r\n<br><br><string>Operation completed with warnings:&nbsp;</string><pre>" + error + "</pre>" : ""));
 	}
 	
 	/** @author Brian_Entei */
