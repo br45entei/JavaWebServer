@@ -1,7 +1,11 @@
 package com.gmail.br45entei.server.data;
 
+import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
+
 import java.io.ByteArrayInputStream;
+import java.io.Closeable;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,7 +15,7 @@ import java.util.Arrays;
  * later read from/written to file.
  *
  * @author Brian_Entei */
-public final class FileData {
+public final class FileData implements Closeable {
 	private final DisposableByteArrayOutputStream	fileData;
 	/** The file's name */
 	public final String								fileName;
@@ -56,19 +60,19 @@ public final class FileData {
 		return writeFileToFolder(folder, true);
 	}
 	
-	public final File writeFileToFolder(File folder, boolean wipeWhenDone) throws IOException {
+	public final File writeFileToFolder(File folder, boolean wipeWhenDone) throws FileNotFoundException, IOException {
 		if(!folder.exists()) {
 			folder.mkdirs();
 		}
 		String fileName = checkFileName(this.fileName);
 		File file = new File(folder, fileName);
-		FileOutputStream out = new FileOutputStream(file);
-		this.fileData.writeTo(out);
-		if(wipeWhenDone) {
-			this.finalize();
+		try(FileOutputStream out = new FileOutputStream(file)) {
+			this.fileData.writeTo(out);
+			if(wipeWhenDone) {
+				this.close();
+			}
+			out.flush();
 		}
-		out.flush();
-		out.close();
 		return file;
 	}
 	
@@ -96,12 +100,14 @@ public final class FileData {
 	
 	/** @return An InputStream containing this file's data */
 	public final InputStream getFileDataAsInputStream() {
-		return new ByteArrayInputStream(this.fileData.toByteArray());
+		return new ByteArrayInputStream(this.fileData.getBytesAndDispose());
 	}
 	
 	@Override
-	public final void finalize() {
-		this.fileData.dispose();
+	public final void close() {
+		if(this.fileData != null) {
+			this.fileData.close();
+		}
 	}
 	
 }

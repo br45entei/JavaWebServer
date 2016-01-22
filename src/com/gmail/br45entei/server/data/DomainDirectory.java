@@ -9,10 +9,7 @@ import com.gmail.br45entei.swt.Functions;
 import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -957,10 +954,11 @@ public final class DomainDirectory implements DisposableUUIDData {
 				}
 				File styleSheet = this.getDefaultStyleSheetFromFileSystem();
 				if(styleSheet != null && !styleSheet.exists()) {
-					try(PrintWriter pr = new PrintWriter(new OutputStreamWriter(new FileOutputStream(styleSheet), "UTF-8"), true)) {
+					ResourceFactory.getResourceFromStreamAsFile(styleSheet.getParentFile(), "files/layout.css", styleSheet.getName());
+					/*try(PrintWriter pr = new PrintWriter(new OutputStreamWriter(new FileOutputStream(styleSheet), "UTF-8"), true)) {
 						pr.println("* {\r\n" + "margin: 0;\r\n" + "}\r\n" + "html, body {\r\n" + "height: 100%;\r\n" + "}\r\n" + ".wrapper {\r\n" + "min-height: 100%;\r\n" + "height: auto !important;\r\n" + "height: 100%;\r\n" + "margin: 0 auto -4em;\r\n" + "}");
 					} catch(Throwable ignored) {
-					}
+					}*/
 					if(styleSheet.exists()) {
 						if(this.getDisplayLogEntries()) {
 							JavaWebServer.println("\t\t\tCreated default stylesheet for domain \"" + this.domain.getValue() + "\"\r\n\t\t\tat: \"" + styleSheet.getAbsolutePath() + "\".");

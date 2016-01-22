@@ -2,8 +2,8 @@ package com.gmail.br45entei.gui;
 
 import com.gmail.br45entei.ConsoleThread;
 import com.gmail.br45entei.JavaWebServer;
+import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
 import com.gmail.br45entei.server.HTTPClientRequest;
-import com.gmail.br45entei.server.data.DisposableByteArrayOutputStream;
 import com.gmail.br45entei.server.data.Property;
 import com.gmail.br45entei.server.data.php.PhpResult;
 import com.gmail.br45entei.swt.WindowsClassicThemeDetector;

@@ -1,7 +1,7 @@
 package com.gmail.br45entei.util;
 
 import com.gmail.br45entei.JavaWebServer;
-import com.gmail.br45entei.server.data.DisposableByteArrayOutputStream;
+import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;

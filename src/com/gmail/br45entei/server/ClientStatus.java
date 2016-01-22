@@ -28,10 +28,10 @@ public interface ClientStatus {
 	public double getProgress();
 	
 	/** @return This status's current byte count. */
-	public int getCount();
+	public long getCount();
 	
 	/** @return This status's content length. */
-	public int getContentLength();
+	public long getContentLength();
 	
 	/** @return Whether or not this status has been cancelled. */
 	public boolean isCancelled();

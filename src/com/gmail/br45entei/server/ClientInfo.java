@@ -83,14 +83,14 @@ public final class ClientInfo implements ClientStatus {
 	}
 	
 	@Override
-	public final int getCount() {
-		return Long.valueOf(this.requestedFile.bytesTransfered).intValue();
+	public final long getCount() {
+		return this.requestedFile.bytesTransfered;
 	}
 	
 	@Override
-	public final int getContentLength() {
+	public final long getContentLength() {
 		try {
-			return Integer.valueOf(this.requestedFile.contentLength).intValue();
+			return Integer.valueOf(this.requestedFile.contentLength).longValue();
 		} catch(NumberFormatException ignored) {
 			return 0;
 		}

@@ -12,6 +12,7 @@ import com.gmail.br45entei.server.HTTPServerResponse;
 import com.gmail.br45entei.server.HTTPStatusCodes;
 import com.gmail.br45entei.server.RangeRequest;
 import com.gmail.br45entei.server.RequestResult;
+import com.gmail.br45entei.server.ReusedConn;
 import com.gmail.br45entei.server.SocketConnectResult;
 import com.gmail.br45entei.server.data.ClientConnectTime;
 import com.gmail.br45entei.server.data.DomainDirectory;
@@ -31,7 +32,6 @@ import com.gmail.br45entei.util.AddressUtil;
 import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.FileUtil;
 import com.gmail.br45entei.util.ImageUtil;
-import com.gmail.br45entei.util.LogUtils;
 import com.gmail.br45entei.util.MapUtil;
 import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.ResponseUtil;
@@ -103,6 +103,7 @@ import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_400;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_401;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_403;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_404;
+import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_405;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_407;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_409;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_413;
@@ -115,9 +116,10 @@ import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_502;
 import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_504;
 
 /** The main Server class */
-public final class JavaWebServer {//TODO Implement per-folder default files, like with domains(configurable on the folder administration page)
+public final class JavaWebServer {//TODO Implement per-folder background color/images/textures with configurable settings(image repeats, size, etc.) based on pure HTML
+	//TODO Implement per-folder default files, like with domains(configurable on the folder administration page)
 	//TODO Go through and read all of the old TODO's and actually do them you lazy bum <--
-	//TODO http://www.singular.co.nz/2008/07/finding-preferred-accept-encoding-header-in-csharp/
+	//TODO http://www.singular.co.nz/2008/07/finding-preferred-accept-encoding-header-in-csharp/ --> Meaning, stop using this: request.acceptEncoding.toLowerCase().contains("gzip") ... and actually parse the accept encoding header.
 	//TODO Implement all or most of the id3v2.3.0 media tags from http://id3.org/id3v2.3.0 and the relevant ones from https://code.google.com/p/mp4v2/wiki/iTunesMetadata
 	
 	protected final Thread											sslThread;
@@ -437,7 +439,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	/** @param request The client's HTTP request
 	 * @return The client's remote ip address and port */
 	public static final String getClientAddress(HTTPClientRequest request) {
-		String rtrn = request.status.getClientAddress();
+		String rtrn = request.getStatus().getClientAddress();
 		if(!request.xForwardedFor.isEmpty()) {
 			printlnDebug("\tIdentified client behind proxy: " + request.xForwardedFor);
 			rtrn = request.xForwardedFor;
@@ -1349,19 +1351,18 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								try {
 									s.setTcpNoDelay(true);
 									final InputStream in = s.getInputStream();
-									RequestResult result = HandleAdminRequest(s, in, false);//HandleAdminRequest(s);
-									boolean reuse = result.reuse;
+									RequestResult result = HandleAdminRequest(s, in, ReusedConn.FALSE);//HandleAdminRequest(s);
 									System.gc();
 									PrintUtil.printToConsole();
 									PrintUtil.printErrToConsole();
 									if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
-										reuse = false;
+										result.reuse.reuse = false;
 									}
-									if(reuse) {
+									if(result.reuse.reuse) {
 										long startTime = System.currentTimeMillis();
-										while((result = HandleAdminRequest(s, in, reuse)).reuse) {
+										while((result = HandleAdminRequest(s, in, result.reuse)).reuse.reuse) {
 											if(System.currentTimeMillis() - startTime < 250L) {//FIXME There's a strange bug/glitch that causes CPU usage to spike when a request starts looping for some reason, so this is a temporary hack/workaround until I can find it...
-												reuse = false;
+												result.reuse.reuse = false;
 												System.gc();
 												PrintUtil.printToConsole();
 												PrintUtil.printErrToConsole();
@@ -1371,7 +1372,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 											PrintUtil.printToConsole();
 											PrintUtil.printErrToConsole();
 											if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
-												reuse = false;
+												result.reuse.reuse = false;
 												break;
 											}
 											startTime = System.currentTimeMillis();
@@ -1449,20 +1450,19 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 									InputStream in = s.getInputStream();
 									RequestResult result = HandleRequest(s, in, true);
 									wasProxyRequest = result.wasProxyRequest();
-									boolean reuse = result.reuse;
 									System.gc();
 									PrintUtil.printToConsole();
 									PrintUtil.printErrToConsole();
 									if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
-										reuse = false;
+										result.reuse.reuse = false;
 									}
-									if(reuse) {
-										while((result = HandleRequest(s, in, true, reuse)).reuse == true) {
+									if(result.reuse.reuse) {
+										while((result = HandleRequest(s, in, true, result.reuse)).reuse.reuse) {
 											System.gc();
 											PrintUtil.printToConsole();
 											PrintUtil.printErrToConsole();
 											if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
-												reuse = false;
+												result.reuse.reuse = false;
 												break;
 											}
 										}
@@ -1471,14 +1471,24 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								} catch(SSLHandshakeException e) {
 									printErrln("Failed to initialize SSL handshake: " + e.getMessage());
 								} catch(SocketException e) {
-									if(HTTPClientRequest.debug || (e.getMessage() != null && !e.getMessage().equals("Socket Closed") && !e.getMessage().equals("Software caused connection abort: recv failed"))) {
+									final String msg = e.getMessage();
+									if(HTTPClientRequest.debug || (msg != null && !msg.equals("Socket Closed") && !msg.equals("Software caused connection abort: recv failed"))) {
 										println("\t /!\\\tFailed to respond to client request:\r\n\t/___\\" + e.getMessage());
 									} else {
 										PrintUtil.clearLogs();
 										PrintUtil.clearErrLogs();
 									}
 								} catch(Throwable e) {
-									e.printStackTrace();
+									final String msg = e.getMessage();
+									if(msg != null) {
+										if(msg.equals("Remote host closed connection during handshake")) {
+											printErrln("Failed to initialize SSL handshake: " + msg);
+										} else {
+											e.printStackTrace();
+										}
+									} else {
+										e.printStackTrace();
+									}
 								}
 								if(!wasProxyRequest) {
 									try {
@@ -1527,7 +1537,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			println("Session lock initialized.");
 			return;
 		} catch(Throwable ignored) {
-			printErrln("Fatal error: Unable to initialize session lock(is there another instance of this web server already running?)!");
+			printErrln("Fatal error: Unable to initialize session lock(is there another instance of this web server already running in the current directory?)!");
 			PrintUtil.printToConsole();
 			PrintUtil.printErrToConsole();
 			JavaWebServer.getInstance().shutdown();
@@ -1619,25 +1629,25 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 							InputStream in = s.getInputStream();
 							RequestResult result = HandleRequest(s, in, false);
 							wasProxyRequest = result.wasProxyRequest();
-							boolean reuse = result.reuse;
 							System.gc();
 							PrintUtil.printToConsole();
 							PrintUtil.printErrToConsole();
 							if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
-								reuse = false;
+								result.reuse.reuse = false;
 							}
-							if(reuse) {
-								while((result = HandleRequest(s, in, false, reuse)).reuse) {
+							if(result.reuse.reuse) {
+								while((result = HandleRequest(s, in, false, result.reuse)).reuse.reuse) {//reuse reuse reuse... XD
 									System.gc();
 									PrintUtil.printToConsole();
 									PrintUtil.printErrToConsole();
 									if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
-										reuse = false;
+										result.reuse.reuse = false;
 										break;
 									}
 								}
 								wasProxyRequest = result.wasProxyRequest();
 							}
+							result.markCompleted();
 						} catch(Throwable e) {
 							e.printStackTrace();
 						}
@@ -1704,9 +1714,98 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 	 * this one */
 	public static final ArrayList<ClientRequestStatus>	connectedProxyRequests	= new ArrayList<>();
 	
-	/** @param in The input stream from the client
-	 * @param requestArguments Any URL parameters passed on from the
-	 *            requestedFilePath */
+	/*public static final void main(String[] args) {
+		final String test = "/";//Media/Music/Upload/";
+		final String address = "http://redsandbox.ddns.net/";
+		final boolean newWindow = true;
+		final boolean named = true;
+		final String params = "?mediaList=1";
+		
+		final String result = createPathLinksFor(test, address, newWindow, named, params);
+		System.out.println(result);
+	}*/
+	
+	private static final String createPathLinksFor(String path, String homeDirName, String httpAddressAndPort, boolean linkNewWindow, boolean linkNamed, String params) {
+		if(path == null || httpAddressAndPort == null) {
+			return null;
+		}
+		params = params == null ? "" : (params.startsWith("?") || params.trim().isEmpty() ? params : "?" + params);
+		final String originalParams = params;
+		if(params.toLowerCase().contains("mediainfo=")) {
+			final String[] split = params.substring(1).split(Pattern.quote("&"));
+			String pResult = "?";
+			boolean firstTime = true;
+			for(String s : split) {
+				String sep = firstTime ? "?" : "&";
+				if(s.isEmpty()) {
+					continue;
+				}
+				boolean wasFirstTime = firstTime;
+				firstTime = false;
+				if(s.contains("=")) {
+					String[] entry = s.split(Pattern.quote("="));
+					String pname = entry[0];
+					//String pvalue = StringUtils.stringArrayToString(entry, '=', 1);
+					if(pname.equalsIgnoreCase("mediaInfo")) {
+						firstTime = wasFirstTime;
+						continue;
+					}
+				}
+				pResult += sep + s;
+			}
+			params = pResult.equals("?") ? "" : pResult;
+		}
+		final String linkStart = "<a href=\"{0}" + params + "\"" + (linkNamed ? " name=\"{1}\"" : "") + (linkNewWindow ? " target=\"_blank\"" : "") + ">";
+		final String linkEnd = "</a>";
+		final String origLinkStart = "<a href=\"{0}" + originalParams + "\"" + (linkNamed ? " name=\"{1}\"" : "") + (linkNewWindow ? " target=\"_blank\"" : "") + ">";
+		path = path.trim();
+		homeDirName = homeDirName == null ? "" : homeDirName.trim();
+		httpAddressAndPort = httpAddressAndPort.endsWith("/") ? httpAddressAndPort.substring(0, httpAddressAndPort.length() - 1) : httpAddressAndPort;
+		if(path.equals("/")) {
+			final String result = "<string>/" + linkStart.replace("{0}", httpAddressAndPort) + "./" + linkEnd + "</string>";
+			return linkNamed ? result.replace("{1}", homeDirName) : result;
+		}
+		path = path.startsWith("/") ? path.substring(1) : path;
+		String pathBuild = "/";
+		String result = "<string>/" + linkStart.replace("{0}", httpAddressAndPort) + "." + linkEnd;
+		result = linkNamed ? result.replace("{1}", homeDirName) : result;
+		String[] split = path.split(Pattern.quote("/"));
+		int i = 1;
+		for(String p : split) {
+			if(p.trim().isEmpty()) {
+				continue;
+			}
+			boolean isLast = i == split.length;
+			String appendStr = (isLast ? origLinkStart : linkStart).replace("{0}", httpAddressAndPort + pathBuild + p) + p + linkEnd;
+			appendStr = linkNamed ? appendStr.replace("{1}", p) : appendStr;
+			result += "/" + appendStr;
+			pathBuild += p + "/";
+			i++;
+		}
+		return result + "</string>";
+	}
+	
+	/** Locates and serves the requested file to the client. Also serves
+	 * generated-on-the-fly content such as directory data, file structure,
+	 * media views, etc.
+	 * 
+	 * @param s The client
+	 * @param keepAlive Whether or not keep-alive was specified
+	 * @param https Whether or not the connection is https://
+	 * @param outStream The OutputStream of the client
+	 * @param response The response to use when responding to the client
+	 * @param clientInfo The client information(deprecated)
+	 * @param domainDirectory The domain that the client used to connect to this
+	 *            server(the host header in the client's request)
+	 * @param request The client's HTTP request
+	 * @throws IOException Thrown if a network or file input/output exception
+	 *             occurs.
+	 * @see #HandleRequest(Socket, InputStream, boolean)
+	 * @see #HandleRequest(Socket, InputStream, boolean, ReusedConn)
+	 * @see #HandleAdminRequest(Socket, InputStream, ReusedConn)
+	 * @see #handleAdministrateFile(HTTPClientRequest, File, String, String,
+	 *      String, OutputStream, PrintWriter, DomainDirectory, boolean, String,
+	 *      String, ClientInfo) */
 	private static final void serveFileToClient(final Socket s, boolean keepAlive, boolean https, final OutputStream outStream, final HTTPServerResponse response, final ClientInfo clientInfo, final DomainDirectory domainDirectory, final HTTPClientRequest request) throws IOException {
 		final String clientIPAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
 		final ClientConnectTime cct = getClientConnectTimeFor(clientIPAddress);
@@ -1736,14 +1835,19 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		
 		//==
 		
+		final String homeDirPath = FilenameUtils.normalize(domainDirectory.getDirectory().getAbsolutePath());
+		
 		final String pathPrefix = FilenameUtils.getFullPathNoEndSeparator(FilenameUtils.normalize(domainDirectory.getDirectory().getAbsolutePath() + File.separatorChar));
 		//println("rootDir.getAbsolutePath(): \"" + rootDir.getAbsolutePath() + File.separatorChar + "\"");
 		//println("pathPrefix: \"" + pathPrefix + "\"");
 		String path = requestedFile.getAbsolutePath().replace(pathPrefix, "").replace('\\', '/');
 		path = (path.trim().isEmpty() ? "/" : path);
 		path = (path.startsWith("/") ? "" : "/") + path;
-		final String pagePrefix = (path.startsWith("/") ? path : "/" + path) + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress;
+		final String pagePrefix = createPathLinksFor(path, domainDirectory.getDirectory().getName(), httpProtocol + request.host, false, true, request.requestArgumentsStr)/*(path.startsWith("/") ? path : "/" + path)*/+ " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress;
 		final String pageHeader = "<h1>" + pagePrefix + " </h1><hr>";
+		
+		final boolean isLayoutOrFavicon = request.requestedFilePath.equalsIgnoreCase("/favicon.ico") || request.requestedFilePath.equalsIgnoreCase(domainDirectory.getDefaultPageIcon()) || request.requestedFilePath.equalsIgnoreCase("/layout.css") || request.requestedFilePath.equalsIgnoreCase(domainDirectory.getDefaultStylesheet());
+		final boolean isReqCurrentWrkDir = (reqFilePath.equalsIgnoreCase(wrkDirPath) || reqFilePath.startsWith(wrkDirPath)) && !(reqFilePath.toLowerCase().startsWith(homeDirPath.toLowerCase()));
 		
 		//==
 		
@@ -1810,7 +1914,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				out.close();
 			}
 			return;
-		} else if(reqFilePath.equalsIgnoreCase(wrkDirPath) || reqFilePath.startsWith(wrkDirPath)) {//If the requested file is(or is a child of) the current working directory of this server, then we should require administration credentials before allowing the client to view sensitive server files.
+		} else if(!isLayoutOrFavicon && isReqCurrentWrkDir) {//If the requested file is(or is a child of) the current working directory of this server(and is not the intended folder according to the domain data used), then we should require administration credentials before allowing the client to view sensitive server files.
 			final BasicAuthorizationResult authResult = authenticateBasicForServerAdministration(request, false);
 			final String authCookie = authResult.authorizedCookie;
 			if(!authResult.passed()) {
@@ -1855,7 +1959,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		final String homeLink = httpProtocol + (request.host + "/");
 		final String parentFileLink;
 		final File parentFile = requestedFile.getParentFile();
-		final String homeDirPath = FilenameUtils.normalize(domainDirectory.getDirectory().getAbsolutePath());
+		//final String homeDirPath = FilenameUtils.normalize(domainDirectory.getDirectory().getAbsolutePath());
 		if(parentFile != null && !FilenameUtils.normalize(requestedFile.getAbsolutePath()).equals(homeDirPath)) {
 			String parentRequestPath = FilenameUtils.normalize(parentFile.getAbsolutePath()).replace(homeDirPath, "").replace("\\", "/");
 			parentRequestPath = (parentRequestPath.startsWith("/") ? "" : "/") + parentRequestPath;
@@ -1864,6 +1968,9 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			parentFileLink = null;
 		}
 		final String previousPageLink = (!request.referrerLink.isEmpty() ? request.referrerLink : null);
+		
+		String autoplayCheck = request.requestArguments.get("autoplay");
+		final boolean autoplay = autoplayCheck != null ? (autoplayCheck.equals("1") || autoplayCheck.equalsIgnoreCase("true")) : false;
 		
 		//==
 		if(requestedFile.isFile()) {
@@ -1926,7 +2033,6 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					try {
 						RangeRequest range = new RangeRequest(request.range, contentLength);
 						if(range.isValid()) {
-							printlnDebug("TEST 6: values are in range of file size.");
 							println("\t*** 206 Partial Content(Byte range) Requested: " + range.startBytes + "-" + range.endBytes + " /" + contentLength + (request.ifRange.isEmpty() ? "(No \"If-Range\" header sent)" : "(\"If-Range\" requirement met)"));
 							PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
 							out.println("HTTP/1.1 206 Partial Content");
@@ -1942,7 +2048,6 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 							out.println("");
 							out.flush();
 							if(request.method.equalsIgnoreCase("GET")) {
-								printlnDebug("TEST 7: HTTP method is a GET request.");
 								try {
 									InputStream closeMe = conn.getInputStream();
 									if(closeMe != null) {
@@ -1951,14 +2056,13 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								} catch(Throwable ignored) {
 								}
 								InputStream fileIn = new FileInputStream(requestedFile);
-								printlnDebug("TEST 8: file input stream established.");
 								IOException exception = null;
 								try {
 									long sentBytes = range.sendRangeTo(fileIn, outStream, info, clientInfo);//copyInputStreamToOutputStream(info, fileIn, outStream, range.startBytes, range.endBytes, clientInfo);
 									printlnDebug("DEBUG: Sent Bytes matches length: " + ((sentBytes == range.rangeLength) ? "true" : "false; Sent bytes: " + sentBytes));
 									println("\t\t\tSent file \r\n\t\t\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t\t to client \"" + clientAddress + "\" successfully.");
 								} catch(IOException e) {
-									printlnDebug("\t /!\\\tFailed to send file \r\n\t/___\\\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t to client \"" + clientAddress + "\": " + LogUtils.throwableToStr(e));
+									println("\t /!\\\tFailed to send file \r\n\t/___\\\t\"" + FilenameUtils.normalize(requestedFile.getAbsolutePath()) + "\"\r\n\t\t to client \"" + clientAddress + "\": " + e.getMessage());
 									exception = e;
 								}
 								try {
@@ -2039,6 +2143,24 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						//s.close();
 						connectedClients.remove(clientInfo);
 						return;
+					} else if(info.mimeType.startsWith("text/")) {
+						Charset charset = null;
+						try {
+							charset = Charset.forName(StringUtils.getDetectedEncoding(requestedFile));
+						} catch(Throwable ignored) {
+							charset = StandardCharsets.UTF_8;
+						}
+						response.setHeader("Content-Type", "text/plain; charset=" + charset);//The whole point of 'displayFile' is to get the browser to display the file instead of attempting to download it.
+						response.setHeader("Server", SERVER_NAME_HEADER);
+						response.setHeader("Cache-Control", (RestrictedFile.isFileRestricted(requestedFile) ? cachePrivateMustRevalidate : (requestedFile.isDirectory() ? "no-cache, must-revalidate" : "public, max-age=" + domainDirectory.getCacheMaxAge())));
+						response.setHeader("Date", StringUtils.getCurrentCacheTime());
+						response.setHeader("Last-Modified", StringUtils.getCacheTime(requestedFile.lastModified()));
+						response.setHeader("Accept-Ranges", "none");
+						response.setResponse(FileUtil.readFileData(requestedFile));
+						response.sendToClient(s, request.method.equalsIgnoreCase("GET"));
+						//s.close();
+						connectedClients.remove(clientInfo);
+						return;
 					}
 				} else if(mediaInfo) {
 					//TODO if(domainDirectory.getEnableMediaInfoParsing()) {
@@ -2107,7 +2229,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 							"\t<body>\r\n" + //
 							"\t\t" + pageHeader + "<br>\r\n" + //
 							"\t\t" + mInfo + "\r\n" + //
-							"\t\t<a href=\"" + fileLink + "\">Click to " + (isMimeTypeAudio(info.mimeType) ? "listen" : "watch") + "</a>&nbsp;\r\n" + //
+							(autoplay ? "\t\t<" + (isMimeTypeVideo(info.mimeType) ? "video" : "audio") + " autoplay controls=\"\" preload=\"auto\" name=\"" + requestedFile.getName() + "\"><source src=\"" + fileLink + "\" type=\"" + info.mimeType + "\"></" + (isMimeTypeVideo(info.mimeType) ? "video" : "audio") + ">" : "\t\t<a href=\"" + fileLink + "\">Click to " + (isMimeTypeAudio(info.mimeType) ? "listen" : "watch") + "</a>&nbsp;\r\n") + //
 							(previousPageLink == null ? "" : "\t\t<a href=\"" + previousPageLink + "\">Back to previous page</a>&nbsp;\r\n") + //
 							(parentFileLink == null ? "" : "\t\t<a href=\"" + parentFileLink + "\">Back to " + (parentFile != null ? parentFile.getName() : "[parent file]") + "</a>\r\n") + //
 							"\t</body>\r\n</html>");
@@ -2208,7 +2330,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					"\t</head>\r\n" + //
 					"\t<body>\r\n" + //
 					"\t\t" + pageHeader + "\r\n" + //
-					"<video controls=\"\" autoplay=\"\" name=\"media\" onended=\"window.close();\" id=\"" + random + "\" onload=\"autoResize('" + random + "');\"><source src=\"" + fileLink + "\" type=\"" + info.mimeType + "\"></video>" + //
+					"<video controls=\"\" autoplay=\"metadata\" name=\"media\" onended=\"window.close();\" id=\"" + random + "\" onload=\"autoResize('" + random + "');\"><source src=\"" + fileLink + "\" type=\"" + info.mimeType + "\"></video>" + //
 					"\t</body>\r\n</html>");
 					response.sendToClient(s, request.method.equalsIgnoreCase("GET"));
 					//s.close();
@@ -2267,6 +2389,9 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		if(keepAlive) {
 			out.println("Keep-Alive: timeout=30");
 		}
+		
+		final String greenBorder = "<p class=\"green_border\">";
+		final String brdrEnd = "</p>";
 		
 		String xspfCheck = request.requestArguments.get("xspf");
 		final boolean xspf = xspfCheck != null ? (xspfCheck.equals("1") || xspfCheck.equalsIgnoreCase("true")) : false;
@@ -2507,20 +2632,23 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			}
 		}
 		final boolean enableMediaInfo = doesDirContainMediaFiles;//TODO && domainDirectory.getEnableMediaInfoParsing();
+		final boolean filterFlag = filter != null && !filter.trim().isEmpty();
 		
-		final String addFilterStr = (filter != null && !filter.isEmpty() ? "&filter=" + filter : "");
+		final String addFilterStr = (filterFlag ? "&filter=" + filter : "");
 		final String addSortStr = (requestedFile.isDirectory() && !wasSortNull ? "&sort=" + (isSortReversed ? "-" : "") + sort : "");
 		final boolean isFolderRoot = FilenameUtils.normalize(requestedFile.getAbsolutePath()).equalsIgnoreCase(homeDirPath);
 		
-		final String normalView = "\t\t<b><a href=\"" + fileLink + "\">Normal View</a></b>\t\r\n";
-		final String mediaView = (domainDirectory.getEnableMediaView() ? "\t\t<b><a href=\"" + fileLink + "?mediaView=1" + addFilterStr + "\">Media View</a></b>\t\r\n" : "");
-		final String mediaList = (domainDirectory.getEnableMediaList() ? "\t\t<b><a href=\"" + fileLink + "?mediaList=1" + addSortStr + addFilterStr + "\">Media List</a></b>\t\r\n" : "");
-		final String xmlView = (domainDirectory.getEnableXmlListView() ? "\t\t<b><a href=\"" + fileLink + "?xml=1" + addFilterStr + "\">Xml View</a></b>\r\n" : "");
-		final String xspfView = (domainDirectory.getEnableVLCPlaylistView() && doesDirContainMediaFiles ? "\t\t<b><a href=\"" + fileLink + "?xspf=1" + addFilterStr + "\" download=\"" + (isFolderRoot ? domainDirectory.getDomain().replace(":", ";") : FilenameUtils.getName(requestedFile.getAbsolutePath())) + ".xspf\" title=\"Download and save as '*.xspf', then open with VLC\">VLC Playlist View</a></b>\r\n" : "");
-		final String filterView = (domainDirectory.getEnableFilterView() && !options.isEmpty()) ? "\t\t<b>Filter view:&nbsp;</b><select onChange=\"window.location.href=this.value\" title=\"Filter list\">\r\n"//
-				+ options + "\t\t</select>\r\n" : (domainDirectory.getEnableFilterView() ? "<b>Filter view: (No files to filter)</b>\r\n" : "");
-		final String randomLinkView = (randomLink != null ? "\t\t<b><a href=\"" + randomLink + "\" rel=\"nofollow\"" + linkTarget + " title=\"(You may need to refresh the page for the next random file to appear)\">Open random file</a></b>\r\n" : "");
-		final String bodyHeader = pageHeader + "\r\n" + (domainDirectory.getEnableAlternateDirectoryListingViews() ? normalView + xmlView + mediaView + (doesDirContainMediaFiles ? mediaList : "") + xspfView + filterView + randomLinkView + "<hr>\r\n" : "");
+		final boolean normalViewFlag = !mediaViewFlag && !mediaListFlag;
+		
+		final String normalView = "\t\t<td>" + (normalViewFlag ? greenBorder : "") + "<b><a href=\"" + fileLink + "\">Normal View</a></b>" + (normalViewFlag ? brdrEnd : "") + "</td>\r\n";
+		final String mediaView = (domainDirectory.getEnableMediaView() ? "\t\t<td>" + (mediaViewFlag ? greenBorder : "") + "<b><a href=\"" + fileLink + "?mediaView=1" + addFilterStr + "\">Media View</a></b>" + (mediaViewFlag ? brdrEnd : "") + "</td>\r\n" : "");
+		final String mediaList = (domainDirectory.getEnableMediaList() ? "\t\t<td>" + (mediaListFlag && !mediaViewFlag ? greenBorder : "") + "<b><a href=\"" + fileLink + "?mediaList=1" + addSortStr + addFilterStr + "\">Media List</a></b>" + (mediaListFlag && !mediaViewFlag ? brdrEnd : "") + "</td>\r\n" : "");
+		final String xmlView = (domainDirectory.getEnableXmlListView() ? "\t\t<td><b><a href=\"" + fileLink + "?xml=1" + addFilterStr + "\">Xml View</a></b></td>\r\n" : "");
+		final String xspfView = (domainDirectory.getEnableVLCPlaylistView() && doesDirContainMediaFiles ? "\t\t<td><b><a href=\"" + fileLink + "?xspf=1" + addFilterStr + "\" download=\"" + (isFolderRoot ? domainDirectory.getDomain().replace(":", ";") : FilenameUtils.getName(requestedFile.getAbsolutePath())) + ".xspf\" title=\"Download and save as '*.xspf', then open with VLC\">VLC Playlist View</a></b></td>\r\n" : "");
+		final String filterView = (domainDirectory.getEnableFilterView() && !options.isEmpty()) ? "\t\t<td>" + (filterFlag ? greenBorder : "") + "<b>Filter view:&nbsp;</b><select onChange=\"window.location.href=this.value\" title=\"Filter list\">\r\n"//
+				+ options + "\t\t</select>" + (filterFlag ? brdrEnd : "") + "</td>\r\n" : (domainDirectory.getEnableFilterView() ? "<td><b>Filter view: (No files to filter)</b></td>\r\n" : "");
+		final String randomLinkView = (randomLink != null ? "\t\t<td><b><a href=\"" + randomLink + "\" rel=\"nofollow\"" + linkTarget + " title=\"(You may need to refresh the page for the next random file to appear)\">Open random file</a></b>&nbsp;</td>\r\n" : "");
+		final String bodyHeader = pageHeader + "\r\n" + (domainDirectory.getEnableAlternateDirectoryListingViews() ? "<table border=\"0\" cellpadding=\"1\" cellspacing=\"1\"><tbody>" + normalView + xmlView + mediaView + (doesDirContainMediaFiles ? mediaList : "") + xspfView + filterView + randomLinkView + "</tbody></table><hr>\r\n" : "");
 		
 		final String backLink = fileLink + (addSortStr.isEmpty() ? "" : "?" + addSortStr.substring(1)) + (addFilterStr.isEmpty() ? "" : (addSortStr.isEmpty() ? "?" : "&") + addFilterStr.substring(1));
 		
@@ -2679,9 +2807,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			responseStr += "\t<subfiles>\r\n" + fileTable + "\t</subfiles>\r\n";
 			responseStr += "</directory>";
 		} else if(mediaViewFlag && domainDirectory.getEnableMediaView()) {
-			String autoplayCheck = request.requestArguments.get("autoplay");
-			boolean autoplay = (autoplayCheck != null ? (autoplayCheck.equals("1") || autoplayCheck.equals("true")) : false);
-			
+			boolean autoplayFlag = autoplay;
 			out.println("Content-Type: text/html; charset=UTF-8");//" + info.mimeType);
 			
 			String fileTable = "";
@@ -2731,10 +2857,10 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						final String lineEnd = "<hr>\r\n";
 						if(isMimeTypeMedia(mimeType)) {
 							fileTable += line1 + //
-							"\t\t<video controls=\"\" preload=\"auto\" " + (autoplay ? "autoplay=\"autoplay\"" : "") + "name=\"" + fileName + "\">\r\n" + //
+							"\t\t<video controls=\"\" preload=\"metadata\" " + (autoplayFlag ? "autoplay=\"autoplay\"" : "") + "name=\"" + fileName + "\">\r\n" + //
 							"\t\t\t<source src=\"" + curFileLink + "\" type=\"" + mimeType + "\">\r\n\t\t</video>" + lineEnd;
-							if(autoplay) {
-								autoplay = false;//prevents multiple videos/songs from playing at the same time on the same page
+							if(autoplayFlag) {
+								autoplayFlag = false;//prevents multiple videos/songs from playing at the same time on the same page
 							}
 						} else if(!ext.equals("lnk") && mimeType.startsWith("text/") && !ext.equals("url")) {
 							fileTable += line1 + //
@@ -2846,8 +2972,14 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					Collections.reverse(filePaths);
 				}
 			}
+			int count = 0;
+			int j = 0;
 			String fileTable = "";
-			for(Entry<Integer, String> entry : files.entrySet()) {
+			Set<Entry<Integer, String>> entrySet = files.entrySet();
+			final int amt = entrySet.size();
+			for(Entry<Integer, String> entry : entrySet) {
+				count++;
+				final boolean endOfLoop = count == amt;
 				CodeUtil.sleep(10L);
 				if(s.isClosed()) {
 					out.close();
@@ -2897,13 +3029,21 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						if(!isMimeTypeMedia(curInfo.mimeType)) {
 							continue;
 						}
+						final boolean isVideo = isMimeTypeVideo(curInfo.mimeType);
 						final String unAliasedPath = (newPath.startsWith("/") ? "" : "/") + newPath;
 						final String fileName = FilenameUtils.getName(curInfo.filePath);
 						final String fileReqPath = StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath));
 						final String curFileLink = StringUtils.encodeHTML(httpProtocol + request.host + fileReqPath);
 						fileTable += "\t\t<div>" + (domainDirectory.getNumberDirectoryEntries() ? "<b>[" + (i.intValue() + 1) + "]:</b> " : "") + "<a href=\"" + curFileLink + "\" target=\"_blank\" name=\"" + fileName + "\">" + fileName + "</a><br>\r\n" + //
 						"\t\t\t" + MediaReader.getMediaInfoHTMLFor(file, domainDirectory.getDirectory().getAbsolutePath()).replace("{0}", fileReqPath) + "\r\n" + //
+						"\t\t\t<" + (isVideo ? "video" : "audio") + (autoplay ? " id=\"autoplay_" + j + "\"" : "") + " controls=\"\" " + (autoplay && j == 0 ? "autoplay=\"autoplay\" " : "") + "preload=\"" + (autoplay ? (j == 0 ? "auto" : "none") : "metadata") + "\" name=\"" + fileName + "\">\r\n" + //
+						"\t\t\t<source src=\"" + curFileLink + "\" type=\"" + curInfo.mimeType + "\">\r\n\t\t</" + (isVideo ? "video" : "audio") + ">" + //
 						"\t\t</div><hr>\r\n";
+						if(autoplay && !endOfLoop) {//XXX mediaList + autoplay = smiley-face
+							//fileTable += "\t\t<script>\r\n	var video = document.getElementsByTagName('video')[" + j + "];\r\n	video.onended = function(e) {\r\n		document.getElementsByTagName('video')[" + (j + 1) + "].play();\r\n	};\r\n</script>\r\n";
+							fileTable += "\t\t<script>\r\n	var video = document.getElementById('autoplay_" + j + "');\r\n	video.onended = function(e) {\r\n		document.getElementById('autoplay_" + (j + 1) + "').play();\r\n	};\r\n</script>\r\n";
+						}
+						j++;
 					}
 				} catch(FileNotFoundException ignored) {
 				} catch(Throwable e) {
@@ -3199,6 +3339,37 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		return rtrn;
 	}*/
 	
+	/** Allows the client to upload, rename, move, and delete files on the
+	 * server, as well as change/set the homepage of the domain.
+	 * 
+	 * @param request The client's HTTP request
+	 * @param requestedFile The file that the client is attempting to administer
+	 * @param clientAddress The client's remote socket address(ip address of
+	 *            computer used to contact this server)
+	 * @param versionToUse HTTP/1.0 or HTTP/1.1
+	 * @param httpProtocol HTTP or HTTPS
+	 * @param outStream The client's output stream to use when sending raw byte
+	 *            content
+	 * @param out The PrintWriter to use when sending text
+	 * @param domainDirectory The domain that the client used to connect to this
+	 *            server(the host header in the client's request)
+	 * @param keepAlive Whether or not keep-alive was specified
+	 * @param reqFileName The name of the file requested
+	 * @param pageHeader The page address header for standard server responses
+	 * @param clientInfo The client information(deprecated)
+	 * @return Whether or not this method did anything. If <code>false</code> is
+	 *         returned, then the request should be treated as a normal client
+	 *         request with
+	 *         {@link #serveFileToClient(Socket, boolean, boolean, OutputStream, HTTPServerResponse, ClientInfo, DomainDirectory, HTTPClientRequest)}
+	 *         through {@link #HandleRequest(Socket, InputStream, boolean)}.
+	 * @see #HandleRequest(Socket, InputStream, boolean)
+	 * @see #HandleRequest(Socket, InputStream, boolean, ReusedConn)
+	 * @see #serveFileToClient(Socket, boolean, boolean, OutputStream,
+	 *      HTTPServerResponse, ClientInfo, DomainDirectory, HTTPClientRequest)
+	 * @see #HandleAdminRequest(Socket, InputStream, ReusedConn)
+	 * @see #getManagementStrForFile(String, String)
+	 * @see #handleProxyRequest(Socket, InputStream, OutputStream,
+	 *      HTTPClientRequest, boolean) */
 	private static final boolean handleAdministrateFile(HTTPClientRequest request, File requestedFile, final String clientAddress, final String versionToUse, final String httpProtocol, OutputStream outStream, PrintWriter out, DomainDirectory domainDirectory, boolean keepAlive, String reqFileName, String pageHeader, ClientInfo clientInfo) {
 		if(request == null || requestedFile == null || !requestedFile.exists() || domainDirectory == null || out == null) {
 			return false;
@@ -3713,6 +3884,16 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		return false;
 	}
 	
+	/** Generates file management links with the given file link and name(i.e.
+	 * Rename, Delete, Move, Restrict, etc.).
+	 * 
+	 * @param fileLink The absolute link to the file in question
+	 * @param fileName The name of the file in question
+	 * @return The generated string
+	 * @see #HandleAdminRequest(Socket, InputStream, ReusedConn)
+	 * @see #handleAdministrateFile(HTTPClientRequest, File, String, String,
+	 *      String, OutputStream, PrintWriter, DomainDirectory, boolean, String,
+	 *      String, ClientInfo) */
 	private static final String getManagementStrForFile(String fileLink, String fileName) {//XXX Folder/File Administration Management Links
 		return "<a href=\"" + fileLink + "?administrateFile=1&renameFile=1\" rel=\"nofollow\" title=\"Rename this file\">Rename</a>"//
 				+ "&nbsp;<a href=\"" + fileLink + "?administrateFile=1&deleteFile=1\" rel=\"nofollow\" title=\"Delete this file\" onclick=\"return confirm('Are you sure you want to delete the file &quot;" + StringUtils.makeFilePathURLSafe(fileName) + "&quot;? This cannot be undone.');\">Delete</a>"//
@@ -3720,10 +3901,26 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				+ "&nbsp;<u><string title=\"This feature is not implemented yet.\">Restrict</string></i></u></b>";//
 	}
 	
-	protected static final RequestResult HandleAdminRequest(final Socket s, final InputStream in, boolean reuse) {
+	/** Parses the client's incoming administration request, then returns the
+	 * result.
+	 * 
+	 * @param s The client
+	 * @param in The client's input stream
+	 * @param reuse Whether or not this is a reused connection
+	 * @return The result of parsing the client's request
+	 * @see #HandleRequest(Socket, InputStream, boolean)
+	 * @see #HandleRequest(Socket, InputStream, boolean, ReusedConn)
+	 * @see #serveFileToClient(Socket, boolean, boolean, OutputStream,
+	 *      HTTPServerResponse, ClientInfo, DomainDirectory, HTTPClientRequest)
+	 * @see #handleAdministrateFile(HTTPClientRequest, File, String, String,
+	 *      String, OutputStream, PrintWriter, DomainDirectory, boolean, String,
+	 *      String, ClientInfo)
+	 * @see #handleProxyRequest(Socket, InputStream, OutputStream,
+	 *      HTTPClientRequest, boolean) */
+	protected static final RequestResult HandleAdminRequest(final Socket s, final InputStream in, ReusedConn reuse) {
 		if(s == null || s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
 			//serverAdministrationAuths.remove(Thread.currentThread());
-			return new RequestResult(null, false, null);
+			return new RequestResult(null, ReusedConn.FALSE, null);
 		}
 		/*if(!reuse) {
 			serverAdministrationAuths.put(Thread.currentThread(), new HttpDigestAuthorization(adminAuthorizationRealm, adminUsername, adminPassword));
@@ -3734,28 +3931,28 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		}
 		final String clientAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
 		//final String clientIP = AddressUtil.getClientAddressNoPort(clientAddress);//clientAddress == null ? null : clientAddress.substring(0, clientAddress.contains(":") ? clientAddress.lastIndexOf(":") - 1 : clientAddress.length());
-		if(isIpBanned(clientAddress, !reuse)) {
+		if(isIpBanned(clientAddress, !reuse.reuse)) {
 			try {
 				s.close();
 			} catch(IOException ignored) {
 			}
 			NaughtyClientData naughty = getBannedClient(clientAddress);
 			println("Kicked client with ip: " + clientAddress + "\r\n\tReason: " + (naughty != null ? "\"" + naughty.banReason + "\"" : "Unknown"));
-			return new RequestResult(null, false, null);
+			return new RequestResult(null, ReusedConn.FALSE, null);
 		}
 		HTTPClientRequest request = null;
 		try {
-			println((reuse ? "Reused" : "New") + " Connection: " + clientAddress);
+			println((reuse.reuse ? "Reused" : "New") + " Connection: " + clientAddress);
 			if(in.available() < 1) {
-				println("\tWaiting on client to send " + (reuse ? "next " : "") + "request...");
+				println("\tWaiting on client to send " + (reuse.reuse ? "next " : "") + "request...");
 			}
 			if(s.isClosed() || s.isInputShutdown()) {
 				println("\t\tIncoming connection from \"" + clientAddress + "\" was interrupted before the client could send any data.");
-				return new RequestResult(null, false, null);
+				return new RequestResult(null, ReusedConn.FALSE, null);
 			}
 			request = new HTTPClientRequest(s, in);
 			try {
-				request.acceptClientRequest(requestTimeout, reuse);//request = HTTPClientRequest.getClientRequest(s, in, requestTimeout, false);//new HTTPClientRequest(s, in);
+				request.acceptClientRequest(requestTimeout, reuse.reuse);//request = HTTPClientRequest.getClientRequest(s, in, requestTimeout, false);//new HTTPClientRequest(s, in);
 			} catch(NumberFormatException e) {
 				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No Content-Length Header defined.").setResponse((String) null).sendToClient(s, false);
 				try {
@@ -3764,7 +3961,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				request.cancel();
 				s.close();
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			} catch(UnsupportedEncodingException e) {
 				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Unsupported Url Encoding").setResponse((String) null).sendToClient(s, false);
 				try {
@@ -3773,7 +3970,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				request.cancel();
 				s.close();
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			} catch(OutOfMemoryError e) {
 				new HTTPServerResponse("HTTP/1.1", HTTP_413, false, StandardCharsets.UTF_8).setStatusMessage("Request data too large").setResponse((String) null).sendToClient(s, false);
 				try {
@@ -3782,7 +3979,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				request.cancel();
 				s.close();
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			} catch(CancellationException e) {
 				new HTTPServerResponse("HTTP/1.1", HTTP_204, false, StandardCharsets.UTF_8).setStatusMessage(e.getMessage()).setResponse((String) null).sendToClient(s, false);
 				try {
@@ -3791,7 +3988,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				request.cancel();
 				s.close();
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			} catch(TimeoutException e) {
 				ResponseUtil.send408Response(s, clientAddress);
 				try {
@@ -3800,7 +3997,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				request.cancel();
 				s.close();
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			}
 			if(!request.xForwardedFor.isEmpty()) {
 				println("\tIdentified client behind proxy: " + request.xForwardedFor);
@@ -3811,7 +4008,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			if(!hostDefined && request.version.equalsIgnoreCase("HTTP/1.1")) {
 				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No host header defined: \"" + originalHost + "\"").setResponse((String) null).sendToClient(s, false);
 				request.cancel();
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			}
 			if(request.method.isEmpty()) {
 				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Bad protocol request: \"" + request.protocolRequest + "\"").setResponse((String) null).sendToClient(s, false);
@@ -3819,18 +4016,18 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					PrintUtil.clearLogs();
 				}
 				request.cancel();
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			}
 			println("\t--- Client request: " + request.protocolRequest);
 			if(!request.requestArguments.isEmpty()) {
 				printlnDebug("\t\tRequest Arguments: \"" + request.requestArgumentsStr + "\"");
 			}
-			reuse = request.connectionSetting.toLowerCase().contains("keep-alive");
+			reuse.reuse = request.connectionSetting.toLowerCase().contains("keep-alive");
 			if(request.connectionSetting.toLowerCase().contains("close")) {
-				reuse = false;
+				reuse.reuse = false;
 			}
-			s.setKeepAlive(reuse);
-			HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close");
+			s.setKeepAlive(reuse.reuse);
+			HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
 			
 			if(request.method.equalsIgnoreCase("brew")) {
 				if(request.version.toUpperCase().startsWith("HTCPCP/")) {
@@ -3839,7 +4036,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					response.setStatusCode(HTTP_418).setStatusMessage("Making tea is fun!").setUseGZip(request.acceptEncoding.toLowerCase().contains("gzip")).setHeader("Date", StringUtils.getCurrentCacheTime()).setHeader("Server", SERVER_NAME_HEADER).setHeader("Content-Type", "text/plain; charset=UTF-8").setHeader("Cache-Control", cachePrivateMustRevalidate).setResponse("Your tea is ready! Enjoy.\r\n").sendToClient(s, true);
 				}
 				s.close();
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			}
 			
 			String path = request.requestedFilePath;
@@ -3850,7 +4047,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			if(!request.protocolRequest.isEmpty()) {
 				if(request.method.isEmpty()) {
 					new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Bad protocolRequest: \"" + request.protocolRequest + "\"").setResponse((String) null).sendToClient(s, false);
-					return new RequestResult(request, false, null);
+					return new RequestResult(request, ReusedConn.FALSE, null);
 				}
 				//final HttpDigestAuthorization serverAdministrationAuth = getOrCreateAuthForCurrentThread();
 				final BasicAuthorizationResult authResult = authenticateBasicForServerAdministration(request, useCookieAuthentication);//final AuthorizationResult authResult = serverAdministrationAuth.authenticate(request.authorization, new String(request.postRequestData), request.protocol, request.host, clientIP, request.cookies);
@@ -4143,7 +4340,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								} catch(Throwable ignored) {
 								}
 								JavaWebServer.getInstance().shutdown();
-								return new RequestResult(request, false, null);
+								return new RequestResult(request, ReusedConn.FALSE, null);
 							} else if(deleteDomainUUID != null) {
 								DomainDirectory domain = DomainDirectory.getDomainDirectoryFromUUID(deleteDomainUUID);
 								if(domain != null) {
@@ -4894,7 +5091,6 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 							println("\t*** HTTP/1.1 200 OK - Admin file");
 							OutputStream outStream = s.getOutputStream();
 							@SuppressWarnings("resource")
-							//And yet it works here. Weird.
 							PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, "UTF-8"), true);
 							out.println("HTTP/1.1 200 OK");
 							if(authResult.authorizedCookie != null) {
@@ -5175,18 +5371,18 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			} catch(Throwable ignored) {
 			}
 			s.close();
-			return new RequestResult(request, false, null);
+			return new RequestResult(request, ReusedConn.FALSE, null);
 		} catch(IOException e) {
 			if(e.getMessage() != null) {
 				if(e.getMessage().equalsIgnoreCase("Client sent no data.")) {
 					if(request != null) {
 						request.cancel();
 					}
-					return new RequestResult(request, false, null);
+					return new RequestResult(request, ReusedConn.FALSE, null);
 				}
 			}
 			println("\t /!\\\tFailed to respond to client request: \"" + clientAddress + "\"\r\n\t/___\\\tCause: " + e.getMessage());
-			return new RequestResult(request, false, e);
+			return new RequestResult(request, ReusedConn.FALSE, e);
 		}
 	}
 	
@@ -5236,15 +5432,66 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 		}
 	}
 	
+	/** Parses the client's incoming server request(via
+	 * {@link #HandleRequest(Socket, InputStream, boolean, ReusedConn)}), then
+	 * returns the result.
+	 * 
+	 * @param s The client
+	 * @param in The client's input stream
+	 * @param https HTTPS(<code>true</code>) or HTTP(<code>false</code>)
+	 * @return The result of parsing the client's request.
+	 * @see #HandleRequest(Socket, InputStream, boolean, ReusedConn)
+	 * @see #serveFileToClient(Socket, boolean, boolean, OutputStream,
+	 *      HTTPServerResponse, ClientInfo, DomainDirectory, HTTPClientRequest)
+	 * @see #HandleAdminRequest(Socket, InputStream, ReusedConn)
+	 * @see #handleAdministrateFile(HTTPClientRequest, File, String, String,
+	 *      String, OutputStream, PrintWriter, DomainDirectory, boolean, String,
+	 *      String, ClientInfo)
+	 * @see #handleProxyRequest(Socket, InputStream, OutputStream,
+	 *      HTTPClientRequest, boolean) */
 	protected static final RequestResult HandleRequest(final Socket s, final InputStream in, boolean https) {
-		return HandleRequest(s, in, https, false);
+		return HandleRequest(s, in, https, new ReusedConn(false, ""));
 	}
 	
+	/** Assembles the client's request data, attempts to connect to the client's
+	 * requested server, then sends the client's original request to the remote
+	 * server.<br>
+	 * If {@link #sendProxyHeadersWithRequest} is set to true, then
+	 * <code>Via:</code> and <code>X-Forwarded-For:</code> headers are sent
+	 * along with the client's existing request headers, identifying this
+	 * connection as a proxy, and identifying the client to the remote server.<br>
+	 * <br>
+	 * If CONNECT was used instead of GET, then this method attempts to connect
+	 * to the specified server(using SSL if the port is 443 or https:// is
+	 * used), then simply copies data from the client to the remote server, and
+	 * data from the remote server to the client.
+	 * 
+	 * @param client The client
+	 * @param clientIn The client's input stream
+	 * @param clientOut The client's output stream
+	 * @param request The client's request
+	 * @param connect Whether or not the client wants to CONNECT to a remote
+	 *            server(<code>true</code>), or GET a webpage from one(
+	 *            <code>false</code>).
+	 * @return The address of the remote server that the client wanted to
+	 *         communicate to, if available.
+	 * @throws Throwable Thrown if there was an issue communicating with the
+	 *             client, the remote server, or if something went wrong
+	 *             here(i.e. The proxy server is not enabled, I dun goofed the
+	 *             code, etc.)
+	 * @see #HandleRequest(Socket, InputStream, boolean)
+	 * @see #HandleRequest(Socket, InputStream, boolean, ReusedConn)
+	 * @see #serveFileToClient(Socket, boolean, boolean, OutputStream,
+	 *      HTTPServerResponse, ClientInfo, DomainDirectory, HTTPClientRequest)
+	 * @see #HandleAdminRequest(Socket, InputStream, ReusedConn)
+	 * @see #handleAdministrateFile(HTTPClientRequest, File, String, String,
+	 *      String, OutputStream, PrintWriter, DomainDirectory, boolean, String,
+	 *      String, ClientInfo) */
 	protected static final String handleProxyRequest(final Socket client, final InputStream clientIn, final OutputStream clientOut, final HTTPClientRequest request, boolean connect) throws Throwable {
 		if(!enableProxyServer) {
 			throw new IllegalStateException("Method \"handleProxyRequest\" called when proxy server is disabled!");
 		}
-		request.status.removeFromList();
+		request.getStatus().removeFromList();
 		if(client == null || client.isClosed() || client.isInputShutdown() || client.isOutputShutdown()) {
 			throw new SocketException("Socket is closed.");
 		}
@@ -5316,8 +5563,8 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			}
 			return serverAddress;
 		}
-		request.status.setProxyRequest(true);
-		request.status.addToList(connectedProxyRequests);
+		request.getStatus().setProxyRequest(true);
+		request.getStatus().addToList(connectedProxyRequests);
 		DomainDirectory check = DomainDirectory.getDomainDirectoryFromDomainName(serverAddress);
 		if(check != null) {
 			if(!check.getDisplayLogEntries()) {
@@ -5326,19 +5573,19 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			}
 		}
 		println("[PROXY] Server address: " + serverAddress + "; Port: " + serverPort);
-		request.status.setStatus("[PROXY] Attempting to connect to server \"" + serverAddress + ":" + serverPort + "\"...");
+		request.getStatus().setStatus("[PROXY] Attempting to connect to server \"" + serverAddress + ":" + serverPort + "\"...");
 		final SocketConnectResult result = new SocketConnectResult(serverAddress, serverPort);
 		final Socket server = result.s;
 		
 		if(!result.failedToConnect) {
 			if(connect || serverPort == 443) {
-				request.status.setStatus("[PROXY] Connection to server \"" + serverAddress + ":" + serverPort + "\" was successful.");
+				request.getStatus().setStatus("[PROXY] Connection to server \"" + serverAddress + ":" + serverPort + "\" was successful.");
 				PrintStream co = new PrintStream(clientOut);
 				co.println(request.version + " " + HTTP_200_1);
 				co.println("");
 				println("[PROXY] " + request.version + " " + HTTP_200_1);
 			} else {
-				request.status.setStatus("[PROXY] Connection to server \"" + serverAddress + ":" + serverPort + "\" was successful. Relaying client's request to server...");
+				request.getStatus().setStatus("[PROXY] Connection to server \"" + serverAddress + ":" + serverPort + "\" was successful. Relaying client's request to server...");
 				println("[PROXY] Relaying client request headers to requested server...");
 				PrintStream so = new PrintStream(result.out);
 				so.println(request.version.toUpperCase().startsWith("HTTP/2.") ? request.protocolRequest : (request.method + " " + (request.requestedFilePath.trim().isEmpty() ? "/" : request.requestedFilePath) + " " + request.version));
@@ -5354,8 +5601,8 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						so.println("Via: " + serverVia);
 					}
 				}
-				request.status.setContentLength(request.headers.keySet().size());
-				request.status.setCount(0);
+				request.getStatus().setContentLength(request.headers.keySet().size());
+				request.getStatus().setCount(0);
 				for(Entry<String, String> entry : request.headers.entrySet()) {
 					if(entry.getKey() != null) {
 						if(!sendProxyHeadersWithRequest) {
@@ -5368,16 +5615,16 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						}
 						so.println(entry.getKey() + ": " + entry.getValue());
 					}
-					request.status.incrementCount();
+					request.getStatus().incrementCount();
 				}
 				so.println("");
 				if(request.postRequestData.length > 0) {
 					println("[PROXY] Relaying client's POST request data to requested server...");
-					request.status.setContentLength(request.postRequestData.length);
-					request.status.setCount(0);
+					request.getStatus().setContentLength(request.postRequestData.length);
+					request.getStatus().setCount(0);
 					for(int i = 0; i < request.postRequestData.length; i++) {
 						so.write(request.postRequestData[i]);
-						request.status.incrementCount();
+						request.getStatus().incrementCount();
 					}
 				}
 				println("[PROXY] Client request sent to requested server successfully.");
@@ -5413,7 +5660,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								result.out.write(buf, 0, clientRead);
 								serverWriteInProgress.setValue(Boolean.FALSE);
 								clientLastReadTime.setValue(Long.valueOf(System.currentTimeMillis()));
-								request.status.addNumOfBytesSentToServer(clientRead);
+								request.getStatus().addNumOfBytesSentToServer(clientRead);
 								clientReadInProgress.setValue(Boolean.TRUE);
 							}
 							clientReadInProgress.setValue(Boolean.FALSE);
@@ -5447,7 +5694,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 								clientOut.write(buf, 0, serverRead);
 								clientWriteInProgress.setValue(Boolean.FALSE);
 								serverLastReadTime.setValue(Long.valueOf(System.currentTimeMillis()));
-								request.status.addNumOfBytesSentToClient(serverRead);
+								request.getStatus().addNumOfBytesSentToClient(serverRead);
 								serverReadInProgress.setValue(Boolean.TRUE);
 							}
 							serverReadInProgress.setValue(Boolean.FALSE);
@@ -5475,7 +5722,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				if(serverException.getValue() != null) {
 					throw serverException.getValue();
 				}
-				request.status.setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Client MTU: " + clientMTU + "; Server MTU: " + serverMTU + "; Data: Client --> Server: " + Functions.humanReadableByteCount(request.status.getNumOfBytesSentToServer(), true, 2) + "; Server --> Client: " + Functions.humanReadableByteCount(request.status.getNumOfBytesSentToClient(), true, 2));
+				request.getStatus().setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Client MTU: " + clientMTU + "; Server MTU: " + serverMTU + "; Data: Client --> Server: " + Functions.humanReadableByteCount(request.getStatus().getNumOfBytesSentToServer(), true, 2) + "; Server --> Client: " + Functions.humanReadableByteCount(request.getStatus().getNumOfBytesSentToClient(), true, 2));
 				long timeElapsedSinceLastClientRead = System.currentTimeMillis() - clientLastReadTime.getValue().longValue();
 				long timeElapsedSinceLastServerRead = System.currentTimeMillis() - serverLastReadTime.getValue().longValue();
 				final boolean clientTimedOut = timeElapsedSinceLastClientRead >= 30000;
@@ -5506,7 +5753,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				CodeUtil.sleep(200L);
 			}
 		} else {
-			request.status.setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Unable to connect to server: " + result.failReason);
+			request.getStatus().setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Unable to connect to server: " + result.failReason);
 			final HTTPStatusCodes code = result.failReason.toLowerCase().contains("timed out") ? HTTP_504 : HTTP_502;
 			PrintUtil.printlnNow("[PROXY] " + request.version + " " + code);
 			PrintStream co = new PrintStream(clientOut);
@@ -5544,7 +5791,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				co.println(response);
 			}
 		}
-		request.status.setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Closing down connections...");
+		request.getStatus().setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Closing down connections...");
 		try {
 			client.close();
 		} catch(Throwable ignored) {
@@ -5553,18 +5800,34 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			server.close();
 		} catch(Throwable ignored) {
 		}
-		request.status.setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; All done!");
+		request.getStatus().setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; All done!");
 		try {
-			request.status.removeFromList();
+			request.getStatus().removeFromList();
 		} catch(Throwable ignored) {
 		}
 		return serverAddress;
 	}
 	
-	protected static final RequestResult HandleRequest(final Socket s, final InputStream in, boolean https, boolean reuse) {
+	/** Parses the client's incoming server request, then returns the result.
+	 * 
+	 * @param s The client
+	 * @param in The client's input stream
+	 * @param https HTTPS(<code>true</code>) or HTTP(<code>false</code>)
+	 * @param reuse Whether or not this is a reused connection
+	 * @return The result of parsing the client's request
+	 * @see #HandleRequest(Socket, InputStream, boolean)
+	 * @see #serveFileToClient(Socket, boolean, boolean, OutputStream,
+	 *      HTTPServerResponse, ClientInfo, DomainDirectory, HTTPClientRequest)
+	 * @see #HandleAdminRequest(Socket, InputStream, ReusedConn)
+	 * @see #handleAdministrateFile(HTTPClientRequest, File, String, String,
+	 *      String, OutputStream, PrintWriter, DomainDirectory, boolean, String,
+	 *      String, ClientInfo)
+	 * @see #handleProxyRequest(Socket, InputStream, OutputStream,
+	 *      HTTPClientRequest, boolean) */
+	protected static final RequestResult HandleRequest(final Socket s, final InputStream in, boolean https, ReusedConn reuse) {
 		if(s == null || s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
 			//serverAdministrationAuths.remove(Thread.currentThread());
-			return new RequestResult(null, false, null);
+			return new RequestResult(null, ReusedConn.FALSE, null);
 		}
 		/*if(!reuse) {
 			serverAdministrationAuths.put(Thread.currentThread(), new HttpDigestAuthorization(adminAuthorizationRealm, adminUsername, adminPassword));
@@ -5579,7 +5842,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			}
 			NaughtyClientData naughty = getBannedClient(getClientAddress);
 			println("Kicked client with ip: " + getClientAddress + "\r\n\tReason: " + (naughty != null ? "\"" + naughty.banReason + "\"" : "Unknown(no ban data found!)"));
-			return new RequestResult(null, false, null);
+			return new RequestResult(null, ReusedConn.FALSE, null);
 		}
 		final ClientConnectTime cct = getClientConnectTimeFor(getClientAddress);
 		final boolean connectionSeemsMalicious = cct.seemsMalicious();
@@ -5587,56 +5850,58 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			incrementWarnCountFor(getClientAddress);
 		}
 		IOException ioException = null;
+		HTTPClientRequest request = null;
 		try {
-			println((reuse ? "Reused" : "New") + " Connection: " + getClientAddress);
+			println((reuse.reuse ? "Reused" : "New") + " Connection: " + getClientAddress);
 			if(in.available() < 1) {
-				println("\tWaiting on client to send " + (reuse ? "next " : "") + "request...");
+				println("\tWaiting on client to send " + (reuse.reuse ? "next " : "") + "request...");
 			}
-			if(s.isClosed() || s.isInputShutdown()) {
+			if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
 				println("\t\tIncoming connection from \"" + getClientAddress + "\" was interrupted before the client could send any data.");
-				return new RequestResult(null, false, null);
+				return new RequestResult(null, ReusedConn.FALSE, null);
 			}
 			PrintUtil.clearLogsBeforeDisplay();
 			PrintUtil.clearErrLogsBeforeDisplay();
-			final HTTPClientRequest request = new HTTPClientRequest(s, in);
+			request = new HTTPClientRequest(s, in);
 			try {
-				request.acceptClientRequest(requestTimeout, reuse);//request = HTTPClientRequest.getClientRequest(s, in, requestTimeout, reuse);//new HTTPClientRequest(s, in);
+				request.acceptClientRequest(requestTimeout, reuse.reuse);//request = HTTPClientRequest.getClientRequest(s, in, requestTimeout, reuse);//new HTTPClientRequest(s, in);
 			} catch(NumberFormatException e) {
-				request.status.removeFromList();
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No Content-Length Header defined.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 400: No \"Content-Length:\" header defined.").sendToClient(s, true);
+				request.markCompleted();
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No Content-Length Header defined.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 400: No \"Content-Length:\" header defined.").sendToClient(s, true);
 				return new RequestResult(null, reuse, null);
 			} catch(UnsupportedEncodingException e) {
-				request.status.removeFromList();
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Unsupported Url Encoding").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
+				request.markCompleted();
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Unsupported Url Encoding").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
 				return new RequestResult(null, reuse, null);
 			} catch(OutOfMemoryError e) {
-				request.status.removeFromList();
-				new HTTPServerResponse("HTTP/1.1", HTTP_413, false, StandardCharsets.UTF_8).setStatusMessage("Request data too large").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
+				request.markCompleted();
+				new HTTPServerResponse("HTTP/1.1", HTTP_413, false, StandardCharsets.UTF_8).setStatusMessage("Request data too large").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
 				System.gc();
 				return new RequestResult(null, reuse, null);
 			} catch(CancellationException e) {
-				request.status.removeFromList();
+				request.markCompleted();
 				new HTTPServerResponse("HTTP/1.1", HTTP_204, false, StandardCharsets.UTF_8).setStatusMessage(e.getMessage()).setHeader("Connection", "close").setResponse((String) null).sendToClient(s, false);
 				request.cancel();
-				return new RequestResult(null, false, null);
+				return new RequestResult(null, ReusedConn.FALSE, null);
 			} catch(TimeoutException e) {
-				request.status.removeFromList();
+				request.markCompleted();
 				ResponseUtil.send408Response(s, getClientAddress);
 				request.cancel();
-				return new RequestResult(null, false, null);//reuse, null);
+				return new RequestResult(null, ReusedConn.FALSE, null);//reuse, null);
 			} catch(Throwable e) {
-				request.status.removeFromList();
-				if(e.getMessage() != null) {
-					if(e.getMessage().equalsIgnoreCase("Client sent no data.")) {
+				request.markCompleted();
+				final String message = e.getMessage();
+				if(message != null) {
+					if(message.equalsIgnoreCase("Client sent no data.")) {
 						ResponseUtil.send408Response(s, getClientAddress);
 						request.cancel();
-						return new RequestResult(null, false, null);
-					} else if(e.getMessage().equalsIgnoreCase("Software caused connection abort: recv failed")) {
+						return new RequestResult(null, ReusedConn.FALSE, null);
+					} else if(message.equalsIgnoreCase("Software caused connection abort: recv failed") || message.equalsIgnoreCase("Connection reset")) {
 						request.cancel();
-						return new RequestResult(null, false, null);
+						return new RequestResult(null, ReusedConn.FALSE, null);
 					}
 				}
-				new HTTPServerResponse("HTTP/1.1", HTTP_500, false, StandardCharsets.UTF_8).setStatusMessage("An unhandled exception has occurred.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 500: " + e.getMessage()).sendToClient(s, true);
+				new HTTPServerResponse("HTTP/1.1", HTTP_500, false, StandardCharsets.UTF_8).setStatusMessage("An unhandled exception has occurred.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 500: " + e.getMessage()).sendToClient(s, true);
 				e.printStackTrace();
 				request.cancel();
 				return new RequestResult(null, reuse, null);
@@ -5645,24 +5910,46 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			PrintUtil.unclearErrLogsBeforeDisplay();
 			final String clientAddress = getClientAddress(request);
 			//final String clientIP = getClientIPNoPort(request);//clientAddress == null ? null : clientAddress.substring(0, clientAddress.contains(":") ? clientAddress.lastIndexOf(":") - 1 : clientAddress.length());
+			final String reqHost = (request.host.isEmpty() ? request.http2Host : request.host).trim();
+			final String host;
+			if(!reuse.reuse || (reuse.hostUsed == null || reuse.hostUsed.isEmpty())) {
+				host = reqHost;
+				if(!reqHost.isEmpty()) {
+					println("\tClient connected using host: " + reqHost);
+				} else if(request.version.equalsIgnoreCase("HTTP/1.1")) {
+					println("\tClient connected using HTTP/1.1, but did not specify a host!");
+				}
+			} else {
+				if(!reqHost.isEmpty() && !reuse.hostUsed.equalsIgnoreCase(reqHost)) {
+					println("\tClient reused existing connection, but used a different host(weird): " + reqHost);
+					host = reqHost;
+				} else if(reqHost.isEmpty() && !reuse.hostUsed.isEmpty()) {
+					println("\tClient originally connected using host: \"" + reuse.hostUsed + "\"; but did not send a host header this time.");
+					host = reuse.hostUsed;
+				} else {
+					host = reqHost;
+				}
+			}
+			reuse.hostUsed = host;
 			if(!request.requestLogs.isEmpty()) {
 				JavaWebServer.print(request.requestLogs);
 			}
 			if(request.isProxyRequest) {
 				if(enableProxyServer) {
-					request.status.removeFromList();
+					request.getStatus().removeFromList();
+					final HTTPClientRequest req = request;
 					Thread proxyThread = new Thread(new Runnable() {
 						@Override
 						public void run() {
 							try {
-								String serverAddress = handleProxyRequest(s, in, s.getOutputStream(), request, request.method.equalsIgnoreCase("CONNECT"));
+								String serverAddress = handleProxyRequest(s, in, s.getOutputStream(), req, req.method.equalsIgnoreCase("CONNECT"));
 								PrintUtil.printlnNow("[PROXY] Successfully handled proxy request between client \"" + clientAddress + "\" and server \"" + serverAddress + "\".");
 								PrintUtil.printErrToConsole();
 							} catch(Throwable e) {
 								PrintUtil.printToConsole();
 								PrintUtil.printErrlnNow("[PROXY] Failed to handle proxy request for client \"" + clientAddress + "\": " + (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
 							}
-							request.status.removeFromList();
+							req.markCompleted();
 							sockets.remove(s);
 						}
 					}, Thread.currentThread().getName().replace("Server", "Proxy"));
@@ -5671,35 +5958,57 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 					proxyThread.setDaemon(true);
 					proxyThread.start();
 				} else {
+					final boolean isMethodCONNECT = request.method.equalsIgnoreCase("CONNECT");
 					HTTPServerResponse response = new HTTPServerResponse("HTTP/1.1", HTTP_421/*HTTP_500*/, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8);
 					final String pageHeader = "<hr><b>" + request.requestedFilePath + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress + "</b>";
-					ResponseUtil.send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
-					/*response.setHeader("Content-Type", "text/html; charset=UTF-8");
-					response.setHeader("Server", SERVER_NAME_HEADER);
-					response.setHeader("Cache-Control", cachePrivateMustRevalidate);
-					response.setHeader("Date", StringUtil.getCurrentCacheTime());
-					response.setResponse("<!DOCTYPE html>\r\n"//
-							+ "<html>\r\n\t<head>\r\n"//
-							+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
-							+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
-							+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + StringUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
-							+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + StringUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtil.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
-							+ "\t\t<title>500 - Internal Server Error - " + SERVER_NAME + "</title>\r\n"//
-							+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
-							+ "\t</head>\r\n"//
-							+ "\t<body>\r\n"//
-							+ "\t\t<h1>Error 500 - Internal Server Error</h1>\r\n"//
-							+ "\t\t<string>Your client's request was a valid proxy request, but this server's proxy functionality is not active.</string>\r\n"//
-							+ "\t</body>\r\n</html>");
-					response.sendToClient(s, true);*/
+					if(isMethodCONNECT) {
+						response.setStatusCode(HTTP_405);
+						response.setHeader("Content-Type", "text/html; charset=UTF-8");
+						response.setHeader("Server", SERVER_NAME_HEADER);
+						response.setHeader("Cache-Control", cachePrivateMustRevalidate);
+						response.setHeader("Date", StringUtil.getCurrentCacheTime());
+						response.setResponse("<!DOCTYPE html>\r\n"//
+								+ "<html>\r\n\t<head>\r\n"//
+								+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
+								+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
+								+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + AddressUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
+								+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + AddressUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
+								+ "\t\t<title>405 - Method Not Allowed - " + SERVER_NAME + "</title>\r\n"//
+								+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
+								+ "\t</head>\r\n"//
+								+ "\t<body>\r\n"//
+								+ "\t\t<h1>Error 405 - Method Not Allowed</h1>\r\n"//
+								+ "\t\t<string>Your client's request was a valid proxy request, but this server's proxy functionality is not active.</string>\r\n"//
+								+ "\t</body>\r\n</html>");
+						response.sendToClient(s, true);
+					} else {
+						ResponseUtil.send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+						/*response.setHeader("Content-Type", "text/html; charset=UTF-8");
+						response.setHeader("Server", SERVER_NAME_HEADER);
+						response.setHeader("Cache-Control", cachePrivateMustRevalidate);
+						response.setHeader("Date", StringUtil.getCurrentCacheTime());
+						response.setResponse("<!DOCTYPE html>\r\n"//
+								+ "<html>\r\n\t<head>\r\n"//
+								+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
+								+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
+								+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + AddressUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
+								+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + AddressUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
+								+ "\t\t<title>500 - Internal Server Error - " + SERVER_NAME + "</title>\r\n"//
+								+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
+								+ "\t</head>\r\n"//
+								+ "\t<body>\r\n"//
+								+ "\t\t<h1>Error 500 - Internal Server Error</h1>\r\n"//
+								+ "\t\t<string>Your client's request was a valid proxy request, but this server's proxy functionality is not active.</string>\r\n"//
+								+ "\t</body>\r\n</html>");
+						response.sendToClient(s, true);*/
+					}
 				}
-				return new RequestResult(request, false, null);
+				return new RequestResult(request, ReusedConn.FALSE, null);
 			}
-			final String originalHost = request.host.isEmpty() ? request.http2Host : request.host;
-			boolean hostDefined = !originalHost.isEmpty();
-			request.host = AddressUtil.getValidHostFor(originalHost);
+			boolean hostDefined = !host.isEmpty();
+			request.host = AddressUtil.getValidHostFor(host);
 			if(!hostDefined && request.version.equalsIgnoreCase("HTTP/1.1")) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No host header defined: \"" + originalHost + "\"").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No host header defined: \"" + host + "\"").setResponse((String) null).sendToClient(s, false);
 				return new RequestResult(request, reuse, null);
 			}
 			if(request.method.isEmpty()) {
@@ -5709,14 +6018,14 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				}
 				return new RequestResult(request, reuse, null);
 			}
-			reuse = request.connectionSetting.toLowerCase().contains("keep-alive");
+			reuse.reuse = request.connectionSetting.toLowerCase().contains("keep-alive");
 			if(request.connectionSetting.toLowerCase().contains("close")) {
-				reuse = false;
+				reuse.reuse = false;
 			}
-			s.setKeepAlive(reuse);
+			s.setKeepAlive(reuse.reuse);
 			
 			if(request.method.equalsIgnoreCase("brew")) {
-				HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close");
+				HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
 				if(request.version.toUpperCase().startsWith("HTCPCP/")) {
 					response.setStatusCode(HTTP_418).setStatusMessage("Making coffee is okay.").setHeader("Date", StringUtils.getCurrentCacheTime()).setHeader("Server", SERVER_NAME_HEADER).setHeader("Content-Type", "text/plain; charset=UTF-8").setHeader("Cache-Control", cachePrivateMustRevalidate).setResponse("Your coffee is ready!\r\nDon't drink too much in a day.\r\n").sendToClient(s, true);
 				} else {
@@ -5745,7 +6054,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			} else {
 				println("\t\tHome directory for domain \"" + request.host + "\" is: \"" + homeDirectory.getAbsolutePath() + "\"!");
 			}
-			final HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip") && domainDirectory.getEnableGZipCompression(), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse ? "keep-alive" : "close");
+			final HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip") && domainDirectory.getEnableGZipCompression(), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
 			response.setDomainDirectory(domainDirectory);
 			
 			if(!request.protocolRequest.isEmpty()) {
@@ -5902,12 +6211,11 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						}
 						final FileInfo info = new FileInfo(requestedFile, domainDirectory);
 						println("\t\tRequested file: \"" + requestedFile.getAbsolutePath() + "\"");
-						boolean isExempt = false;
 						String layout = domainDirectory.getDefaultStylesheet();
 						String favicon = domainDirectory.getDefaultPageIcon();
 						layout = layout.startsWith("/") ? layout : "/" + layout;
 						favicon = favicon.startsWith("/") ? favicon : "/" + favicon;
-						isExempt = administrateFile || request.requestedFilePath.equalsIgnoreCase(layout) || request.requestedFilePath.equalsIgnoreCase(favicon);
+						boolean isExempt = administrateFile || request.requestedFilePath.equalsIgnoreCase(layout) || request.requestedFilePath.equalsIgnoreCase(favicon);
 						
 						if(RestrictedFile.isFileRestricted(requestedFile, s.getInetAddress().getHostAddress()) && !isExempt) {
 							printlnDebug("layout: \"" + layout + "\"; favicon: \"" + favicon + "\";\r\nrequestedFilePath: \"" + request.requestedFilePath + "\";");
@@ -5974,9 +6282,9 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 						clientInfo = new ClientInfo(s, info, request);
 						IOException exception = null;
 						try {
-							serveFileToClient(s, reuse, https, s.getOutputStream(), response, clientInfo, domainDirectory, request);
+							serveFileToClient(s, reuse.reuse, https, s.getOutputStream(), response, clientInfo, domainDirectory, request);
 						} catch(IOException e) {
-							reuse = false;
+							reuse.reuse = false;
 							exception = e;
 						}
 						connectedClients.remove(clientInfo);
@@ -6097,7 +6405,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 									response.setHeader("Content-Length", "0");
 									response.setResponse((String) null);
 									response.sendToClient(s, false);
-									request.multiPartFormData.finalize();
+									request.multiPartFormData.close();
 									request.multiPartFormData = null;
 									System.gc();
 									return new RequestResult(request, reuse, null);
@@ -6138,7 +6446,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 									i++;
 								}
 							}
-							request.multiPartFormData.finalize();
+							request.multiPartFormData.close();
 							request.multiPartFormData = null;
 							System.gc();
 						} else {
@@ -6198,7 +6506,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 				PrintUtil.clearLogs();
 				PrintUtil.clearErrLogs();
 				connectedClients.remove(clientInfo);
-				return new RequestResult(null, false, ioException);
+				return new RequestResult(request, ReusedConn.FALSE, ioException);
 			}
 			if(HTTPClientRequest.debug) {
 				println("\t /!\\\tFailed to respond to client request: \"" + getClientAddress + "\"\r\n\t/___\\\tCause: " + (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
@@ -6212,7 +6520,7 @@ public final class JavaWebServer {//TODO Implement per-folder default files, lik
 			PrintUtil.clearErrLogs();
 		}
 		connectedClients.remove(clientInfo);
-		return new RequestResult(null, false, ioException);
+		return new RequestResult(request, ReusedConn.FALSE, ioException);
 	}
 	
 }

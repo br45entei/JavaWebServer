@@ -1,18 +1,21 @@
 package com.gmail.br45entei.server.data;
 
+import com.gmail.br45entei.data.DisposableByteArrayInputStream;
+import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
 import com.gmail.br45entei.server.ClientRequestStatus;
 import com.gmail.br45entei.server.HTTPClientRequest;
 import com.gmail.br45entei.util.PrintUtil;
 
 import java.io.ByteArrayInputStream;
+import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.regex.Pattern;
 
 /** @author Brian_Entei */
-public final class MultipartFormData {
+public final class MultipartFormData implements Closeable {
 	
-	public final ClientRequestStatus		status;
+	private volatile ClientRequestStatus	status;
 	
 	/** The content type used to initialize this instantiation(must contain the
 	 * string {@code "multipart/form-data"} and a {@code "boundary"} data value,
@@ -24,7 +27,7 @@ public final class MultipartFormData {
 	/** An ArrayList containing any {@link FileData} instances that may have been
 	 * created while parsing the input data
 	 * 
-	 * @see #dispose() */
+	 * @see #close() */
 	public final ArrayList<FileData>		fileData	= new ArrayList<>();
 	
 	/** @param data The data to parse
@@ -49,7 +52,6 @@ public final class MultipartFormData {
 	 *             "multipart/form-data" or if the boundary value was not
 	 *             specified
 	 * @throws OutOfMemoryError Thrown if the data is too large */
-	@SuppressWarnings("resource")
 	public MultipartFormData(byte[] data, String contentType, ClientRequestStatus status, HTTPClientRequest request) throws IllegalArgumentException, OutOfMemoryError {
 		this.status = status;
 		this.contentType = contentType;
@@ -172,6 +174,8 @@ public final class MultipartFormData {
 						}
 					}
 					if(status.isCancelled()) {
+						fileData.close();
+						in.close();
 						throw new IllegalArgumentException("Request was cancelled.");
 					}
 					if(r == -1) {
@@ -179,7 +183,9 @@ public final class MultipartFormData {
 					}
 					//XXX The following 'redundant' code fixes an issue where two bytes are added to the end of the uploaded file each time it is uploaded by preventing "\r\n" to be written. Without this, the file eventually becomes corrupted/the checksum changes because it ends with additional line feed(s) (\r\n)
 					in.mark(0);
-					if(new String(new byte[] {Integer.valueOf(r).byteValue(), Integer.valueOf(in.read()).byteValue()}).equals("\r\n")) {
+					final byte rb = Integer.valueOf(r).byteValue();
+					byte[] r0 = new byte[] {rb, Integer.valueOf(in.read()).byteValue()};
+					if(new String(r0).equals("\r\n")) {
 						if(nextByteIsNextBoundary(in, boundary, status)) {//...ensuring that the next two bytes aren't newline characters prior to the next boundary...
 							status.markReadTime();
 							in.reset();
@@ -187,16 +193,17 @@ public final class MultipartFormData {
 						}
 					}
 					in.reset();
+					HTTPClientRequest.addToDebugFile(new byte[] {rb});
 					fileData.write(r);//...and then write that data here
 					status.markReadTime();
 				}
 				if(fileContentType != null && fileData.size() != 0 && fileName != null && !fileName.isEmpty()) {
 					status.setStatus("Storing file data for later use...");
 					this.fileData.add(new FileData(fileData, fileName, fileContentType));
-				} else if(HTTPClientRequest.debug) {
-					PrintUtil.println("\t /!\\Failed to record collected file data: one of the following is either null or empty(meaning \"0\"): fileContentType: \"" + fileContentType + "\"; fileData.size(): \"" + fileData.size() + "\"; fileName: \"" + fileName + "\";\r\n\t/___\\");
+					fileData = new DisposableByteArrayOutputStream();
+				} else /*if(HTTPClientRequest.debug)*/{
+					PrintUtil.printlnNow("\t /!\\Failed to record collected file data: one of the following is either null or empty(meaning \"0\"): fileContentType: \"" + fileContentType + "\"; fileData.size(): \"" + fileData.size() + "\"; fileName: \"" + fileName + "\";\r\n\t/___\\");
 				}
-				fileData = new DisposableByteArrayOutputStream();
 				/*contentDisposition = null;
 				fileName = null;
 				fileContentType = null;
@@ -224,10 +231,10 @@ public final class MultipartFormData {
 			wasPrevLineEmpty = isLineEmpty;
 			status.markReadTime();
 		}
-		in.dispose();
-		fileData.dispose();
-		in = null;
+		fileData.close();
 		fileData = null;
+		in.close();
+		in = null;
 		System.gc();
 		status.markReadTime();
 	}
@@ -280,13 +287,14 @@ public final class MultipartFormData {
 	
 	/** Clears the {@link #fileData} ArrayList and the {@link #formData} HashMap */
 	@Override
-	public final void finalize() {
+	public final void close() {
 		for(FileData data : this.fileData) {
-			data.finalize();
+			data.close();
 		}
 		this.fileData.clear();
 		this.formData.clear();
 		this.status.removeFromList();
+		this.status = null;
 		System.gc();
 	}
 	
@@ -295,18 +303,13 @@ public final class MultipartFormData {
 		byte read;
 		while((read = Integer.valueOf(in.read()).byteValue()) != -1) {
 			status.incrementCount();
-			if(status.isPaused()) {
-				while(status.isPaused()) {
-					try {
-						Thread.sleep(1L);
-					} catch(Throwable ignored) {
-					}
-				}
-			}
+			status.checkPause();
 			if(status.isCancelled()) {
 				throw new IllegalArgumentException("Request was cancelled.");
 			}
-			String r = new String(new byte[] {read});
+			byte[] r0 = new byte[] {read};
+			String r = new String(r0);
+			HTTPClientRequest.addToDebugFile(r0);
 			if(r.equals("\n")) {
 				break;
 			}

@@ -72,7 +72,8 @@ public class AddressUtil {
 			if(index1 == index2) {
 				return address;//IPv4
 			}
-			return ("[" + address.substring(0, index2) + "]" + address.substring(index2, address.length())).replace("%10", "").replace("%11", "");//IPv6
+			final boolean containsBrackets = address.contains("[") && address.contains("]");
+			return ((containsBrackets ? "" : "[") + address.substring(0, index2) + (containsBrackets ? "" : "]") + address.substring(index2, address.length())).replace("%10", "").replace("%11", "");//IPv6
 		}
 		return address;
 	}

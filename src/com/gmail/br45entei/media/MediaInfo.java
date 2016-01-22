@@ -11,11 +11,13 @@ import java.io.FileOutputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.regex.Pattern;
 
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioHeader;
 import org.jaudiotagger.tag.Tag;
 import org.jaudiotagger.tag.TagField;
+import org.jaudiotagger.tag.id3.TyerTdatAggregatedFrame;
 import org.jaudiotagger.tag.images.Artwork;
 
 /** @author Brian_Entei
@@ -35,9 +37,9 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 	
 	//====
 	
-	public final String				title;
-	public final int				trackNumber;
-	public final int				trackTotal;
+	public final String				title;					//TRCK Track, or "track title"
+	public final int				trackNumber;			//TRKN
+	public final int				trackTotal;			//TXXX Description="TRACKTOTAL"; Value="[some_integer]"
 	public final int				diskNumber;
 	public final String				beatsPerMinute;
 	public final String				trackLengthMillisTag;
@@ -50,12 +52,13 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 	public final String				album;
 	public final String				albumArtist;
 	protected final MediaArtwork	albumArtwork;
-	public final String				year;
-	public final String				genre;
+	public final String				year;					//TYER
+	public final String				genre;					//TCON content type, or genre. Supposed to be a numerical string.
 	public final String				dateReleased;
+	public final String				recordingTime;
 	public final String[]			contributingArtists;
 	
-	public final String				comments;
+	public final String				comments;				//COMM
 	public final String				lyrics;
 	public final String				description;
 	public final String				popularimeter;
@@ -69,7 +72,10 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 	public final String				language;
 	public final String				publisher;
 	public final String				softwareTool;
-	public final String				encodedBy;
+	public final String				encodedBy;				//TENC
+	public final String				encoderSettings;		//TSSE
+	public final String				encodingTime;			//TDEN
+	//TMED (media type)
 	
 	private volatile boolean		hasArtwork	= false;
 	
@@ -112,6 +118,7 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		String year = "";
 		String genre = "";
 		String dateReleased = "";
+		String recordingTime = "";
 		ArrayList<String> conArtists = new ArrayList<>();
 		
 		String comments = "";
@@ -129,6 +136,8 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		String publisher = "";
 		String softwareTool = "";
 		String encodedBy = "";
+		String encoderSettings = "";
+		String encodingTime = "";
 		
 		Iterator<TagField> tags = audioTag.getFields();
 		//byte[] data = new byte[0];
@@ -138,6 +147,12 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 				if(!tag.isBinary()) {
 					String id = tag.getId();
 					id = id.startsWith("WM/") ? id.substring(3) : id;
+					String originalText;
+					try {
+						originalText = new String(tag.getRawContent());
+					} catch(Throwable ignored) {
+						originalText = tag.toString();
+					}
 					String tagText = tag.toString().trim();
 					if(tagText.startsWith("Text=\"") && tagText.endsWith("\";")) {
 						tagText = tagText.substring(6, tagText.length() - 2).trim();
@@ -157,16 +172,30 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							beatsPerMinute = tagText;
 						} else if(id.equals("TLEN")) {
 							trackLengthMillisTag = tagText;
-						} else if(id.equals("TXXX") || id.equals("TRACKTOTAL")) {
+						} else if(id.equals("TRACKTOTAL")) {
 							if(StringUtils.isStrLong(tagText)) {
 								trackTotal = Long.valueOf(tagText).intValue();
+							} else {
+								System.out.println("[Ignoring invalid tag]: " + (tag.isCommon() ? "" : "Uncommon") + "Tag[" + tag.getId() + "]: \"" + tagText + "\";");
 							}
 						} else if(id.equals("TCOM") || id.equalsIgnoreCase("©wrt")) {
 							composer = tagText;
 						} else if(id.equals("AUTHOR")) {
 							author = tagText;
 						} else if(id.equals("TPE1") || id.equalsIgnoreCase("©ART") || id.equalsIgnoreCase("ARTIST")) {
-							artist = tagText;
+							if(id.equals("TPE1")) {
+								String[] split = originalText.split(Pattern.quote("ÿþ"));
+								for(String s : split) {
+									s = s.trim();
+									if(s.startsWith("TPE1")) {
+										continue;
+									}
+									artist += s + "; ";
+								}
+								artist = artist.trim();
+							} else {
+								artist += tagText + "; ";
+							}
 						} else if(id.equals("TP1")) {
 							leadArtist = tagText;
 						} else if(id.equals("TOPE")) {
@@ -177,7 +206,7 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							albumArtist = tagText;
 						} else if(id.startsWith("TPE")) {
 							conArtists.add(tagText);
-						} else if(id.equals("TDRC") || id.equals("TYER") || id.equalsIgnoreCase("YEAR")) {//TDRC is used by VLC, but is not listed on http://id3.org/id3v2.3.0 for some reason
+						} else if(id.equals("TYER") || id.equalsIgnoreCase("YEAR")) {
 							year = tagText;
 						} else if(id.equals("TCON") || id.equalsIgnoreCase("©gen") || id.equalsIgnoreCase("gnre") || id.equalsIgnoreCase("GENRE")) {
 							if(id.equalsIgnoreCase("gnre")) {
@@ -185,8 +214,17 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							} else {
 								genre += tagText + "\r\n";
 							}
-						} else if(id.equalsIgnoreCase("©day") || id.equals("DATE")) {
-							dateReleased = tagText;
+						} else if(id.equalsIgnoreCase("©day") || id.equals("DATE") || id.equals("TYERTDAT")) {
+							if(id.equals("TYERTDAT")) {
+								if(tag instanceof TyerTdatAggregatedFrame) {
+									TyerTdatAggregatedFrame yearDateTag = (TyerTdatAggregatedFrame) tag;
+									dateReleased = yearDateTag.getContent();
+								}
+							} else {
+								dateReleased = tagText;
+							}
+						} else if(id.equals("TDRC")) {
+							recordingTime = tagText;
 						} else if(id.equalsIgnoreCase("©cmt") || id.equals("COMM") || id.equalsIgnoreCase("com")) {
 							comments += tagText + "\r\n";
 						} else if(id.equals("USLT")) {
@@ -215,14 +253,88 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							softwareTool = tagText;
 						} else if(id.equals("TEN") || id.equals("TENC") || id.equalsIgnoreCase("©enc")) {
 							encodedBy = tagText;
+						} else if(id.equals("TSSE")) {
+							encoderSettings = tagText;
+						} else if(id.equals("TDEN")) {
+							encodingTime = tagText;
+						} else if(id.equals("TXXX")) {//User Defined Tags
+							if(tagText.startsWith("Description=\"")) {
+								String[] split = tagText.split(Pattern.quote(";"));
+								if(split.length > 1) {//Meaning there are more than one semi-colon. Consider: {Description="Text";} only has one, so splitting it will yield: {Description="Text"}.
+									String desc = "";
+									String text = "";
+									for(String entry : split) {
+										entry = entry.trim();//Do not remove.
+										if(entry == null || entry.isEmpty()) {//A NPE happened once, believe it or not...
+											continue;
+										}
+										String[] param = entry.split(Pattern.quote("="));
+										String pname = param[0];
+										String pvalue = StringUtils.stringArrayToString(param, '=', 1);//(Everything after the first equals symbol in 'param'.)
+										if(pvalue.startsWith("\"") && pvalue.endsWith("\"") && pvalue.length() >= 2) {
+											pvalue = pvalue.substring(1, pvalue.length() - 1);
+										}
+										if(pname.equalsIgnoreCase("Description")) {
+											desc = pvalue;
+										} else if(pname.equalsIgnoreCase("Text")) {
+											text = pvalue;
+										} else if(!desc.isEmpty() && !text.isEmpty()) {
+											break;
+										}
+									}
+									if(!desc.isEmpty()) {
+										if(desc.equals("TRACKTOTAL")) {
+											if(StringUtils.isStrLong(text)) {
+												trackTotal = Long.valueOf(text).intValue();
+											} else {
+												System.out.println("[Ignoring invalid tag]: " + "User-Defined-Tag[" + tag.getId() + "]: \"" + tagText.replace("\r", "").replace("\n", " ").trim() + "\"; Reason: \"" + text + "\" is not a valid integer value.");
+											}
+										} else if(desc.equalsIgnoreCase("LYRICS")) {
+											lyrics = text;
+										} else {
+											System.out.println("Unimplemented User-Defined Tag: \"" + desc + "\"! Value: \"" + text.replace("\r", "").replace("\n", " ").trim() + "\";");
+										}
+									} else {
+										System.out.println("Unimplemented/unparsable User-Defined Tag: \"" + tagText.replace("\r", "").replace("\n", " ").trim() + "\"");
+									}
+								} else {
+									System.out.println("Unrecognized/unparsable User-Defined Tag: \"" + tagText.replace("\r", "").replace("\n", " ").trim() + "\"");
+								}
+								/*int index1 = tagText.indexOf("\"");
+								int index2 = tagText.indexOf("\";");
+								if(index1 != -1 && index2 != -1) {
+									String subID = tagText.substring(index1 + 1, index2);
+									if((index2 + 3) < tagText.length() - 2) {
+										String subText = tagText.substring(index2 + 3, tagText.length() - 2);
+										if(subText.startsWith("Text=\"")) {
+											subText = subText.substring(6);
+										}
+										if(subID.equals("TRACKTOTAL")) {
+											if(StringUtils.isStrLong(subText)) {
+												trackTotal = Long.valueOf(subText).intValue();
+											} else {
+												System.out.println("[Ignoring invalid  tag]: " + "User-Defined-Tag[" + tag.getId() + "]: \"" + tagText.replace("\r", "").replace("\n", " ").trim() + "\";");
+											}
+										} else if(subID.equalsIgnoreCase("LYRICS")) {
+											lyrics = subText;
+										} else {
+											System.out.println("Unimplemented User-Defined Tag: \"" + subID + "\"! Value: \"" + subText.replace("\r", "").replace("\n", " ").trim() + "\";");
+										}
+									} else {
+										System.out.println("Unrecognized/unparsable User-Defined Tag: \"" + tagText.replace("\r", "").replace("\n", " ").trim() + "\"");
+									}
+								}*/
+							} else {
+								System.out.println("Unimplemented User-Defined Tag: \"" + tagText.replace("\r", "").replace("\n", " ").trim() + "\"");
+							}
 						} else {
 							if(!id.startsWith("----:com.apple.iTunes")) {
-								System.out.println("Unimplemented Media Tag: \"" + id + "\"!");
+								System.out.println("Unimplemented Media Tag: \"" + id + "\"! Value: \"" + tagText.replace("\r", "").replace("\n", " ").trim() + "\";");
 							}
 						}
 						//System.out.println((tag.isCommon() ? "" : "Uncommon") + "Tag[" + tag.getId() + "]: " + tagText);
 					} else {
-						System.out.println("[Ignoring blank tag]: " + (tag.isCommon() ? "" : "Uncommon") + "Tag[" + tag.getId() + "]");
+						System.out.println("[Ignoring blank tag]: " + (tag.isCommon() ? "" : "Uncommon") + "Tag[" + tag.getId() + "]: \"" + tagText + "\";");
 					}
 				} else {
 					/*//System.out.println("BinaryTag[" + tag.getId() + "]: " + tag.toString());
@@ -255,6 +367,7 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		this.year = year;
 		this.genre = genre.trim();
 		this.dateReleased = dateReleased;
+		this.recordingTime = recordingTime;
 		this.contributingArtists = conArtists.toArray(new String[conArtists.size()]);
 		
 		this.comments = comments.trim();
@@ -272,6 +385,8 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		this.publisher = publisher;
 		this.softwareTool = softwareTool;
 		this.encodedBy = encodedBy;
+		this.encoderSettings = encoderSettings;
+		this.encodingTime = encodingTime;
 		this.hasArtwork = MediaReader.doesFileHaveArtwork(afile);
 		MediaArtwork albumArtwork = null;
 		if(this.hasArtwork && getArtwork) {
@@ -346,6 +461,7 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		rtrn += this.year.isEmpty() ? "" : "Year: " + this.year + lineSep;
 		rtrn += this.genre.isEmpty() ? "" : "Genre: " + this.genre + lineSep;
 		rtrn += this.dateReleased.isEmpty() ? "" : "Date Released: " + this.dateReleased + lineSep;
+		rtrn += this.recordingTime.isEmpty() ? "" : "Recording Time: " + this.recordingTime + lineSep;
 		rtrn += this.contributingArtists.length == 0 ? "" : "Contributing Artists: " + StringUtils.stringArrayToString(this.contributingArtists, ' ') + lineSep;
 		rtrn = appendStrIfNotSuffixedTwice(rtrn, lineSep);
 		
@@ -365,6 +481,8 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		rtrn += this.publisher.isEmpty() ? "" : "Publisher: " + this.publisher + lineSep;
 		rtrn += this.softwareTool.isEmpty() ? "" : "Software Tool Used: " + this.softwareTool + lineSep;
 		rtrn += this.encodedBy.isEmpty() ? "" : "Encoded by: " + this.encodedBy + lineSep;
+		rtrn += this.encoderSettings.isEmpty() ? "" : "Encoder Settings: " + this.encoderSettings + lineSep;
+		rtrn += this.encodingTime.isEmpty() ? "" : "Encoding Time: " + this.encodingTime + lineSep;
 		
 		rtrn = appendStrIfNotSuffixedTwice(rtrn, lineSep) + "Artwork:" + (this.albumArtwork != null ? "" : " [None attached]") + lineSep;//XXX (DEBUG) // + "<pre>" + new String(this.albumArtwork, StandardCharsets.US_ASCII) + "</pre>";
 		return rtrn;

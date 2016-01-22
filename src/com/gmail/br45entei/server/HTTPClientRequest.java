@@ -16,8 +16,11 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map.Entry;
@@ -31,11 +34,13 @@ public class HTTPClientRequest {
 	public static boolean					debug					= false;
 	
 	//private final Socket					client;
-	private final InputStream				in;
+	private InputStream						in;
 	private boolean							isFinished				= false;
 	private boolean							isCancelled				= false;
 	private boolean							isPostRequest			= false;
-	public final ClientRequestStatus		status;
+	private ClientRequestStatus				status;
+	
+	private volatile boolean				isCompleted				= false;
 	
 	public String							requestLogs				= "";
 	
@@ -113,8 +118,10 @@ public class HTTPClientRequest {
 		while((read = in.read()) != -1) {
 			status.incrementCount();
 			status.markReadTime();
-			String r = new String(new byte[] {(byte) read});
+			byte[] r0 = new byte[] {(byte) read};
+			String r = new String(r0);
 			line += r;
+			addToDebugFile(r0);
 			if(r.equals("\n") || read == -1 || line.length() > 16038) {
 				break;
 			}
@@ -125,29 +132,6 @@ public class HTTPClientRequest {
 		line = line.trim();
 		//System.out.println("Read line: \"" + line + "\";");
 		return line;
-	}
-	
-	private static final byte[] readBytes(InputStream in, int numOfBytes) throws IOException {
-		if(in == null) {
-			return null;
-		}
-		if(numOfBytes == 0) {
-			return new byte[0];
-		}
-		if(numOfBytes < 0) {
-			throw new IndexOutOfBoundsException("\"numOfBytes\" must not be negative: " + numOfBytes);
-		}
-		final byte[] bytes = new byte[numOfBytes];
-		int read;
-		int readAmt = 0x0;
-		while((read = in.read()) != -1) {
-			if(read == -1 || readAmt >= numOfBytes) {
-				break;
-			}
-			bytes[readAmt] = Integer.valueOf(read).byteValue();
-			readAmt++;
-		}
-		return bytes;
 	}
 	
 	protected static final class ReqHolder {
@@ -197,7 +181,7 @@ public class HTTPClientRequest {
 			if((System.currentTimeMillis() - startTime) > timeout) {
 				if(!this.isPostRequest && (System.currentTimeMillis() - this.status.getLastReadTime()) >= timeout) {
 					if(this.multiPartFormData != null) {
-						this.multiPartFormData.finalize();
+						this.multiPartFormData.close();
 					}
 					this.multiPartFormData = null;
 					System.gc();
@@ -251,13 +235,57 @@ public class HTTPClientRequest {
 		this.status = new ClientRequestStatus(s, 0);
 	}
 	
+	private final void checkForPause() {
+		if(this.status.isPaused()) {
+			String lastStatus = this.status.getStatus();
+			while(this.status.isPaused()) {
+				this.status.setStatus("Operation paused by user.");
+				if(this.status.isCancelled()) {
+					break;
+				}
+				CodeUtil.sleep(8L);
+			}
+			this.status.setStatus(lastStatus);
+		}
+	}
+	
+	private static final File					debugFile	= new File(JavaWebServer.rootDir, "request_Debug.txt");
+	private static volatile FileOutputStream	debFos		= null;
+	
+	public static final void addToDebugFile(byte[] bytes) {
+		if(debug) {
+			if(!debugFile.exists()) {
+				try {
+					debugFile.createNewFile();
+				} catch(Throwable ignored) {
+					return;
+				}
+			}
+			try {
+				if(debFos == null) {
+					debFos = new FileOutputStream(debugFile, true);
+				}
+				debFos.write(bytes);
+				debFos.flush();
+			} catch(Throwable ignored) {
+			}
+		}
+	}
+	
 	protected final void parseRequest() throws IOException, NumberFormatException, OutOfMemoryError, CancellationException {
-		final String clientAddress = this.status.getClientAddress();
+		//final String clientAddress = this.status.getClientAddress();
 		//final String clientIP = AddressUtil.getClientAddressNoPort(clientAddress);
 		int i = 0;
 		while(!this.status.isCancelled()) {
 			CodeUtil.sleep(8L);
+			if(this.status == null) {
+				PrintUtil.printlnNow("Fatal error: Request status object rendered null...");
+				break;
+			}
 			final String line = readLine(this.in, this.status);
+			if(this.status == null) {
+				throw new CancellationException("Request status is null! How did that happen?");
+			}
 			this.status.setStatus("Receiving client request...");
 			this.status.markReadTime();
 			if(line == null) {
@@ -280,26 +308,59 @@ public class HTTPClientRequest {
 				if(this.method.equalsIgnoreCase("POST") && !this.contentLength.isEmpty()) {
 					this.status.setStatus("Receiving client POST data...");
 					this.isPostRequest = true;
-					final int contentLength = new Long(this.contentLength).intValue();
+					final long contentLength = new Long(this.contentLength).longValue();
 					this.status.setContentLength(contentLength);
 					this.status.setCount(0);
+					this.status.setLastReadAmount(1);
 					/*this.postRequestStr = readLine(in, new Long(this.contentLength).longValue());*/
 					//If the majority of browsers fix the issue where they don't display data sent from servers while they are uploading files, then I could put a check here to see if the client is uploading multipart/form-data and then check if they are authenticated. For now, bandwidth will have to be wasted and the client will complete the file upload only to find out that they require authorization...
-					this.postRequestData = new byte[contentLength];
-					for(int j = 0; j < this.postRequestData.length; j++) {
-						CodeUtil.sleep(8L);
-						if(this.status.isPaused()) {
-							String lastStatus = this.status.getStatus();
-							while(this.status.isPaused()) {
-								this.status.setStatus("Operation paused by user.");
-								if(this.status.isCancelled()) {
-									break;
+					//this.postRequestData = new byte[contentLength];
+					final int mtu = 2048;
+					byte[] buf = new byte[mtu];
+					long count = 0;
+					int read;
+					
+					long remaining = contentLength - count;
+					try(DisposableByteArrayOutputStream baos = new DisposableByteArrayOutputStream()) {
+						this.status.markDataTransferStartTime();
+						while((read = this.in.read(buf, 0, buf.length)) != -1) {
+							count += read;
+							remaining = contentLength - count;
+							this.status.markReadTime();
+							this.status.setCount(count);
+							this.status.setLastReadAmount(read);
+							checkForPause();
+							baos.write(buf, 0, read);
+							if(remaining < mtu) {
+								buf = new byte[(int) remaining];
+								read = this.in.read(buf, 0, buf.length);
+								while(remaining > 0) {
+									count += read;
+									remaining = contentLength - count;
+									this.status.markReadTime();
+									this.status.setCount(count);
+									this.status.setLastReadAmount(read);
+									checkForPause();
+									baos.write(buf, 0, read);
+									if(remaining <= 0) {
+										break;
+									}
+									read = this.in.read(buf, 0, 1);
 								}
-								this.status.markReadTime();
-								CodeUtil.sleep(8L);
+								break;
 							}
-							this.status.setStatus(lastStatus);
 						}
+						this.postRequestData = baos.getBytesAndDispose();
+						addToDebugFile(this.postRequestData);
+					} catch(IOException e) {
+						PrintUtil.printlnNow("Failed to read client request data: " + StringUtil.throwableToStr(e));
+						this.postRequestData = new byte[0];
+						System.gc();
+					}
+					
+					/*for(int j = 0; j < this.postRequestData.length; j++) {
+						CodeUtil.sleep(8L);
+						checkForPause();
 						if(this.status.isCancelled() || this.isCancelled) {
 							this.postRequestData = new byte[0];
 							break;
@@ -307,11 +368,11 @@ public class HTTPClientRequest {
 						this.postRequestData[j] = (byte) this.in.read();
 						this.status.markReadTime();
 						this.status.incrementCount();
-					}
+					}*/
 					if(this.status.isCancelled() || this.isCancelled) {
 						this.formURLEncodedData = new FormURLEncodedData("");
 						if(this.multiPartFormData != null) {
-							this.multiPartFormData.finalize();
+							this.multiPartFormData.close();
 						}
 						this.multiPartFormData = null;
 						this.postRequestData = new byte[0];
@@ -385,6 +446,18 @@ public class HTTPClientRequest {
 					this.method = split[0];
 					this.requestedFilePath = split[1];
 					this.version = split[2];
+					if(this.version == null || this.version.isEmpty() || !(this.version.startsWith("HTTP/") || this.version.startsWith("HTCPCP/"))) {
+						try(PrintWriter pr = new PrintWriter(new OutputStreamWriter(this.status.getClient().getOutputStream(), StandardCharsets.UTF_8), true)) {
+							pr.println("HTTP/1.1 400 Bad Request");
+							pr.println("Connection: close");
+							pr.println("");
+							pr.flush();
+						} catch(IOException e) {
+							throw e;
+						} catch(Throwable ignored) {
+						}
+						return;
+					}
 					println("\t--- Client request: " + this.protocolRequest);
 					
 					if(this.requestedFilePath.startsWith("http://") || this.requestedFilePath.startsWith("https://")) {
@@ -539,7 +612,9 @@ public class HTTPClientRequest {
 			}
 			i++;
 		}
-		this.status.setStatus("Preparing client request for processing...");
+		if(this.status != null) {
+			this.status.setStatus("Preparing client request for processing...");
+		}
 		if(this.formURLEncodedData == null) {
 			this.formURLEncodedData = new FormURLEncodedData("");
 		}
@@ -554,6 +629,34 @@ public class HTTPClientRequest {
 			PrintUtil.printToConsole();
 			PrintUtil.printErrToConsole();
 		}
+	}
+	
+	public final ClientRequestStatus getStatus() {
+		return this.status;
+	}
+	
+	public final void markCompleted() {
+		if(this.isCompleted) {
+			return;
+		}
+		if(this.status != null) {
+			this.status.markCompleted();
+			this.status = null;
+		}
+		this.postRequestData = null;
+		this.formURLEncodedData = null;
+		this.multiPartFormData = null;
+		this.in = null;
+		this.headers.clear();
+		this.cookies.clear();
+		this.requestArguments.clear();
+		this.requestArgumentsStr = null;
+		this.isCompleted = true;
+		System.gc();
+	}
+	
+	public final boolean isCompleted() {
+		return this.isCompleted;
 	}
 	
 	private volatile String	toStringStr	= null;

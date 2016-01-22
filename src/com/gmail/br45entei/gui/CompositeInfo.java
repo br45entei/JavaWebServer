@@ -148,7 +148,7 @@ public final class CompositeInfo extends Composite {
 		if(this.status instanceof ClientInfo) {
 			ClientInfo info = (ClientInfo) this.status;
 			labelStr = "Client Info: " + info.getClientAddress() + "; Host used: \"" + info.clientRequest.host + "\"; " + info.requestedFile.toString() + "; Data: " + Functions.humanReadableByteCount(info.requestedFile.bytesTransfered, true, 2) + " / " + Functions.humanReadableByteCount(new Long(info.requestedFile.contentLength).longValue(), true, 2) + "; Data Transfer Rate: " + Functions.humanReadableByteCount(info.requestedFile.lastWriteAmount * 5L, true, 2) + "/sec";
-			info.requestedFile.updateTime = 1000L / 5L;
+			info.requestedFile.updateTime = 1000L / 5L;//200 milliseconds
 		} else {
 			labelStr = "Client Info: " + this.status.getClientAddress() + "; Data: " + Functions.humanReadableByteCount(this.status.getCount(), true, 2) + " / " + Functions.humanReadableByteCount(new Long(this.status.getContentLength()).longValue(), true, 2) + " uploaded;";
 			if(this.status instanceof ClientRequestStatus) {
@@ -156,6 +156,19 @@ public final class CompositeInfo extends Composite {
 				labelStr += " Status: \"" + status.getStatus() + "\";";
 				if(status.getFileName() != null) {
 					labelStr += " File name: \"" + status.getFileName() + "\";";
+				}
+				final long timeTaken = status.getDataTransferElapsedTime();
+				final long bytesPerSecond = status.getLastReadAmount() * 5L;
+				labelStr += "Data Transfer Rate: " + Functions.humanReadableByteCount(bytesPerSecond, true, 2) + "/sec";
+				final long currentData = status.getCount();
+				final long length = status.getContentLength();
+				
+				if(bytesPerSecond != 0 && currentData != 0) {
+					final long secondsRemaining1 = (length - currentData) / bytesPerSecond;
+					final long secondsRemaining2 = (timeTaken / currentData) * (length - currentData);//(TimeTaken.TotalSeconds / totalBytesCopied) * (totalFileSizeToCopy - totalBytesCopied);
+					
+					final long averageSecondsRemaining = (secondsRemaining1 + secondsRemaining2) / 2L;
+					labelStr += "; Estimated Time Remaining: " + averageSecondsRemaining;
 				}
 			}
 		}

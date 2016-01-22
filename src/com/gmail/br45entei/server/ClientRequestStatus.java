@@ -1,7 +1,9 @@
 package com.gmail.br45entei.server;
 
+import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.util.AddressUtil;
+import com.gmail.br45entei.util.CodeUtil;
 
 import java.net.Socket;
 import java.util.ArrayList;
@@ -12,21 +14,35 @@ import org.apache.commons.lang3.StringUtils;
 /** @author Brian_Entei */
 public class ClientRequestStatus implements ClientStatus {
 	
-	private final UUID						uuid;
-	private final long						startTime;
-	private final Socket					client;
-	private int								contentLength;
-	private int								count				= 0;
-	private boolean							isCancelled			= false;
-	private boolean							isPaused			= false;
-	private String							status				= "Receiving Data...";
-	private String							fileName			= null;
-	private long							lastReadTime		= System.currentTimeMillis();
-	private long							lastWriteTime		= System.currentTimeMillis();
-	private ArrayList<ClientRequestStatus>	list				= null;
-	private long							bytesSentToServer	= 0L;
-	private long							bytesSentToClient	= 0L;
-	private boolean							isProxyRequest		= false;
+	private final UUID								uuid;
+	private final long								startTime;
+	private volatile Socket							client;
+	private volatile long							contentLength;
+	private volatile long							count					= 0;
+	private volatile boolean						isCancelled				= false;
+	private volatile boolean						isPaused				= false;
+	private volatile String							status					= "Receiving Data...";
+	private volatile String							fileName				= null;
+	
+	private volatile long							dataTransferStartTime	= -1L;
+	private volatile long							lastReadTime			= System.currentTimeMillis();
+	private volatile long							lastWriteTime			= System.currentTimeMillis();
+	private volatile long							lastReadAmount			= 0L;
+	private volatile long							lastWriteAmount			= 0L;
+	
+	private volatile ArrayList<ClientRequestStatus>	list					= null;
+	private volatile long							bytesSentToServer		= 0L;
+	private volatile long							bytesSentToClient		= 0L;
+	private volatile boolean						isProxyRequest			= false;
+	
+	protected final void markCompleted() {
+		if(this.client != null) {
+			JavaWebServer.sockets.remove(this.client);
+		}
+		this.client = null;
+		this.removeFromList();
+		this.list = null;
+	}
 	
 	public ClientRequestStatus(Socket s, int contentLength) {
 		this.uuid = UUID.randomUUID();
@@ -82,6 +98,17 @@ public class ClientRequestStatus implements ClientStatus {
 		return this.isPaused;
 	}
 	
+	public final void checkPause() {
+		if(this.isPaused) {
+			final String oldStatus = this.status;
+			while(this.isPaused) {
+				this.status = "Operation paused by user.";
+				CodeUtil.sleep(4L);
+			}
+			this.status = oldStatus;
+		}
+	}
+	
 	@Override
 	public final ClientRequestStatus pause() {
 		this.isPaused = true;
@@ -101,21 +128,36 @@ public class ClientRequestStatus implements ClientStatus {
 	}
 	
 	@Override
-	public final int getCount() {
+	public final long getCount() {
 		return this.count;
 	}
 	
-	public final ClientRequestStatus setCount(int count) {
+	public final ClientRequestStatus setCount(long count) {
 		this.count = count;
 		return this;
 	}
 	
+	public final ClientRequestStatus setProgress(long count, long readAmount, long writeAmount) {
+		this.count = count;
+		final long oldReadAmt = this.lastReadAmount;
+		final long oldWriteAmt = this.lastWriteAmount;
+		this.lastReadAmount = readAmount;
+		this.lastWriteAmount = writeAmount;
+		if(this.lastReadAmount > oldReadAmt) {
+			this.markReadTime();
+		}
+		if(this.lastWriteAmount > oldWriteAmt) {
+			this.markWriteTime();
+		}
+		return this;
+	}
+	
 	@Override
-	public final int getContentLength() {
+	public final long getContentLength() {
 		return this.contentLength;
 	}
 	
-	public final ClientRequestStatus setContentLength(int contentLength) {
+	public final ClientRequestStatus setContentLength(long contentLength) {
 		this.contentLength = contentLength;
 		return this;
 	}
@@ -182,6 +224,19 @@ public class ClientRequestStatus implements ClientStatus {
 		return null;
 	}
 	
+	public final ClientRequestStatus markDataTransferStartTime() {
+		this.dataTransferStartTime = System.currentTimeMillis();
+		return this;
+	}
+	
+	public final long getDataTransferStartTime() {
+		return this.dataTransferStartTime;
+	}
+	
+	public final long getDataTransferElapsedTime() {
+		return System.currentTimeMillis() - this.dataTransferStartTime;
+	}
+	
 	public final long getLastReadTime() {
 		return this.lastReadTime;
 	}
@@ -193,6 +248,29 @@ public class ClientRequestStatus implements ClientStatus {
 	
 	public final long getLastWriteTime() {
 		return this.lastWriteTime;
+	}
+	
+	public final ClientRequestStatus markWriteTime() {
+		this.lastWriteTime = System.currentTimeMillis();
+		return this;
+	}
+	
+	public final long getLastReadAmount() {
+		return this.lastReadAmount;
+	}
+	
+	public final ClientRequestStatus setLastReadAmount(long amount) {
+		this.lastReadAmount = amount;
+		return this;
+	}
+	
+	public final long getLastWriteAmount() {
+		return this.lastWriteAmount;
+	}
+	
+	public final ClientRequestStatus setLastWriteAmount(long amount) {
+		this.lastWriteAmount = amount;
+		return this;
 	}
 	
 	public final long getNumOfBytesSentToServer() {

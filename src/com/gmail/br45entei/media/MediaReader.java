@@ -99,6 +99,7 @@ public class MediaReader {
 	}
 	
 	public static final synchronized MediaInfo readFile(File file, boolean getArtwork) throws Throwable {
+		dOut.dispose();//Clears out any old errors that don't have anything to do with this(they'll show up at the end if they aren't cleared here)
 		MediaInfo rtrn = readFileNoDispose(file, getArtwork);
 		dOut.dispose();
 		return rtrn;
@@ -190,11 +191,7 @@ public class MediaReader {
 			e.printStackTrace();
 		}
 		final byte[] data = baos.toByteArray();
-		baos.dispose();
-		try {
-			baos.close();
-		} catch(IOException e) {
-		}
+		baos.close();
 		return data;
 	}
 	
