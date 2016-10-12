@@ -98,6 +98,14 @@ public class MediaReader {
 		return rtrn;
 	}
 	
+	/** @param file The music <s>or video</s> file whose track data and idv3
+	 *            tags(if any) will be read
+	 * @param getArtwork Whether or not the artwork should be retrieved as well,
+	 *            if any exists
+	 * @return The newly created media information for the requested file, or
+	 *         null if the file was not a valid/recognized media file
+	 * @throws Throwable Thrown if an error occurred whilst attempting to read
+	 *             data from the given file */
 	public static final synchronized MediaInfo readFile(File file, boolean getArtwork) throws Throwable {
 		dOut.dispose();//Clears out any old errors that don't have anything to do with this(they'll show up at the end if they aren't cleared here)
 		MediaInfo rtrn = readFileNoDispose(file, getArtwork);
@@ -105,6 +113,10 @@ public class MediaReader {
 		return rtrn;
 	}
 	
+	/** @param file The media file whose artwork will be returned(if any) in PNG
+	 *            format as raw bytes
+	 * @return The media file's artwork bytes, or an empty byte array if there
+	 *         was no artwork data */
 	public static final byte[] readFileArtworkAsPNG(File file) {
 		if(file == null || !file.isFile()) {
 			return null;
@@ -122,8 +134,8 @@ public class MediaReader {
 		} catch(TagException e) {
 			System.err.print("Unable to read file's tag data: ");
 			e.printStackTrace();
-		} catch(ReadOnlyFileException e) {//???
-			System.err.print("Unable to read file: File is read only: ");
+		} catch(ReadOnlyFileException e) {//??? dafuq
+			System.err.print("Unable to read file: File is read only(...? Isn't that the point...?): ");
 			e.printStackTrace();
 		} catch(InvalidAudioFrameException e) {
 			System.err.print("Unable to read file's audio frame data: ");
@@ -132,6 +144,8 @@ public class MediaReader {
 		return readFileArtworkAsPNG(afile);
 	}
 	
+	/** @param afile The media data to read
+	 * @return Whether or not the given data contains artwork */
 	public static final boolean doesFileHaveArtwork(AudioFile afile) {
 		if(afile == null) {
 			return false;
@@ -140,6 +154,9 @@ public class MediaReader {
 		return artworkList.size() > 0;
 	}
 	
+	/** @param afile The media data to read
+	 * @return The largest artwork from the given data, if any, or
+	 *         <code>null</code> otherwise */
 	public static final Artwork getLargestArtworkFromAudioFile(AudioFile afile) {
 		if(afile == null) {
 			return null;
@@ -175,6 +192,9 @@ public class MediaReader {
 		return biggestArtwork;
 	}
 	
+	/** @param afile The media data to read
+	 * @return The media data's artwork bytes, or an empty byte array if there
+	 *         was no artwork data */
 	public static final byte[] readFileArtworkAsPNG(AudioFile afile) {
 		if(afile == null) {
 			return null;
@@ -195,6 +215,12 @@ public class MediaReader {
 		return data;
 	}
 	
+	/** @param file The media file whose data will be read and converted to
+	 *            readable HTML content
+	 * @param homeDirectory The <em>full path</em> to the home directory of the
+	 *            domain used to make the request for this html data
+	 * @return The requested HTML content, or an error message explaining why
+	 *         the HTML content could not be created, in HTML format */
 	public static final synchronized String getMediaInfoHTMLFor(File file, String homeDirectory) {//TODO Make this better! Maybe a button that you click that shows a little closable window with media infos in it?
 		String rtrn = "<string>Unable to parse file (&quot;{0}&quot;)'s media tags.</string>";
 		boolean success = false;
@@ -243,10 +269,14 @@ public class MediaReader {
 		 * ImageIO; thanks to <a
 		 * href="http://stackoverflow.com/a/34127009/2398263">edparris</a>) */
 		private volatile byte[]		albumArtwork;
+		/** The image's width in pixel size */
 		public final int			width;
+		/** The image's height in pixel size */
 		public final int			height;
+		/** The image's MIME type */
 		public final String			mimeType;
 		
+		/** @param artwork The artwork data to read from */
 		public MediaArtwork(Artwork artwork) {
 			
 			int width = artwork.getWidth();
@@ -273,12 +303,14 @@ public class MediaReader {
 			this.albumArtwork = data;
 		}
 		
+		/** @return A copy of the raw artwork image data */
 		public final byte[] getData() {
 			final byte[] rtrn = new byte[this.albumArtwork.length];
 			System.arraycopy(this.albumArtwork, 0, rtrn, 0, this.albumArtwork.length);
 			return rtrn;
 		}
 		
+		/** Wipes the stored copy of the raw artwork image data */
 		@Override
 		public final void close() {
 			if(this.isDisposed) {
@@ -288,6 +320,7 @@ public class MediaReader {
 			this.isDisposed = true;
 		}
 		
+		/** @return Whether or not this resource has been closed */
 		public final boolean isClosed() {
 			return this.isDisposed;
 		}

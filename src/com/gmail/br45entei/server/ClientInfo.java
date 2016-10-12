@@ -20,6 +20,7 @@ public final class ClientInfo implements ClientStatus {
 	/** The file that the client is requesting */
 	public final FileInfo			requestedFile;
 	
+	/** The client's request */
 	public final HTTPClientRequest	clientRequest;
 	/** This connection's Universally Unique Identifier */
 	public final UUID				uuid;
@@ -130,12 +131,19 @@ public final class ClientInfo implements ClientStatus {
 		return this;
 	}
 	
+	/** @param list The arraylist to add this ClientInfo to
+	 * @return This ClientInfo
+	 * @see #removeFromList() */
 	public final ClientInfo addToList(ArrayList<ClientInfo> list) {
 		this.list = list;
 		list.add(this);
 		return this;
 	}
 	
+	/** Removes this ClientInfo from the list it was added to, if there was one
+	 * 
+	 * @return This ClientInfo
+	 * @see #addToList(ArrayList) */
 	public final ClientInfo removeFromList() {
 		if(this.list != null) {
 			this.list.remove(this);

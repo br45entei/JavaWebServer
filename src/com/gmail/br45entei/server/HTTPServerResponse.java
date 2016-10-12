@@ -3,6 +3,7 @@ package com.gmail.br45entei.server;
 import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FileInfo;
+import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
@@ -42,8 +43,16 @@ public class HTTPServerResponse {
 	
 	protected String						statusMessage	= "";
 	
-	public HTTPServerResponse(String httpVersion, HTTPStatusCodes statusCode, boolean useGZip, Charset charset) {
+	private volatile HTTPClientRequest		request			= null;
+	
+	public HTTPServerResponse(String httpVersion, HTTPStatusCodes statusCode, boolean useGZip, Charset charset, HTTPClientRequest request) {
 		this.setHTTPVersion(httpVersion).setStatusCode(statusCode).setUseGZip(useGZip).setCharset(charset);
+		this.request = request;
+	}
+	
+	@Override
+	public final String toString() {
+		return this.getHTTPVersion() + " " + this.getStatusCode() + (this.statusMessage.isEmpty() ? "" : ": " + this.statusMessage) + (this.response != null ? "\r\n" + this.response : "");
 	}
 	
 	public final String getHTTPVersion() {
@@ -188,6 +197,9 @@ public class HTTPServerResponse {
 	}
 	
 	public final void sendToClient(Socket s, boolean sendResponse) throws IOException {
+		if(this.request != null) {
+			this.request.result = this.toString();
+		}
 		if(s == null) {
 			return;
 		}
@@ -310,6 +322,9 @@ public class HTTPServerResponse {
 		}
 		pr.flush();
 		outStream.flush();
+		if(pr.checkError()) {
+			PrintUtil.printErrlnNow("\t /!\\ Potential error detected while sending HTTP response to client!\r\n\t/___\\");
+		}
 		//outStream.close();
 		//pr.close();
 		//s.close();

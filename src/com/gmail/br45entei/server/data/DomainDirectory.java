@@ -49,6 +49,8 @@ public final class DomainDirectory implements DisposableUUIDData {
 	public final Property<String>	defaultPageIcon							= new Property<>("DefaultPageIcon", JavaWebServer.DEFAULT_PAGE_ICON).setDescription("The default icon(or favicon) that every directory page(in addition to the default server-wide favicon) will use.");
 	public final Property<String>	defaultStylesheet						= new Property<>("DefaultStylesheet", JavaWebServer.DEFAULT_STYLESHEET).setDescription("The default CSS stylesheet that every generated directory page will use.");
 	
+	public final Property<String>	pageHeaderContent						= new Property<>("PageHeaderContent", "").setDescription("Any html code that should be placed within the <head> tag of every dynamically generated page from this domain(such as directory pages).");
+	
 	public final Property<Integer>	mtu										= new Property<>("NetworkMTU", Integer.valueOf(0x400)).setDescription("The maximum transmission unit, or MTU, to use when writing bytes to the output streams of clients(buffer size to use when sending clients data). Recommended setting is 1500, maximum setting should be 20480. Multiples of 512(or powers of 2) are recommended as well, such as 1024.");
 	public final Property<Long>		cacheMaxAge								= new Property<>("CacheMaxAge", JavaWebServer.DEFAULT_CACHE_MAX_AGE).setDescription("The maximum amount of time that clients should keep server files cached.");
 	
@@ -82,6 +84,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 		rtrn.put(this.defaultFontFace.getName(), this.defaultFontFace);
 		rtrn.put(this.defaultPageIcon.getName(), this.defaultPageIcon);
 		rtrn.put(this.defaultStylesheet.getName(), this.defaultStylesheet);
+		rtrn.put(this.pageHeaderContent.getName(), this.pageHeaderContent);
 		rtrn.put(this.cacheMaxAge.getName(), this.cacheMaxAge);
 		rtrn.put(this.numberDirectoryEntries.getName(), this.numberDirectoryEntries);
 		rtrn.put(this.listDirectoriesFirst.getName(), this.listDirectoriesFirst);
@@ -121,6 +124,8 @@ public final class DomainDirectory implements DisposableUUIDData {
 				this.defaultPageIcon.setValue(value);
 			} else if(pname.equalsIgnoreCase(this.defaultStylesheet.getName())) {
 				this.defaultStylesheet.setValue(value);
+			} else if(pname.equalsIgnoreCase(this.pageHeaderContent.getName())) {
+				this.pageHeaderContent.setValue(value);
 			} else if(pname.equalsIgnoreCase(this.mtu.getName())) {
 				try {
 					Integer v = Integer.valueOf(value);
@@ -229,6 +234,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 			domainDirectory = new DomainDirectory(UUID.randomUUID(), JavaWebServer.homeDirectory, domain, JavaWebServer.SERVER_NAME, JavaWebServer.DEFAULT_FILE_NAME, JavaWebServer.defaultFontFace, JavaWebServer.DEFAULT_PAGE_ICON, JavaWebServer.DEFAULT_STYLESHEET);
 			domainDirectory.loadFromFile();
 			domainDirectory.saveToFile();
+			JavaWebServer.println("Just automaticaly created domain \"" + domainDirectory.getDomain() + "\" from requested non-existant: \"" + domain + "\"");
 		}
 		return domainDirectory;
 	}
@@ -430,6 +436,22 @@ public final class DomainDirectory implements DisposableUUIDData {
 			throw new IllegalArgumentException("'defaultStylesheet' cannot be null or empty!");
 		}
 		this.defaultStylesheet.setValue(defaultStylesheet);
+		return this;
+	}
+	
+	/** @return The html tag content that will be placed in the {@code <head>} tag
+	 *         of dynamically generated web pages from this domain(such as a
+	 *         directory page). */
+	public final String getPageHeaderContent() {
+		return this.pageHeaderContent.getValue();
+	}
+	
+	/** @param pageHeaderContent The html tag content that will be placed in the
+	 *            {@code <head>} tag of dynamically generated web pages from
+	 *            this domain(such as a directory page).
+	 * @return This domain data */
+	public final DomainDirectory setPageHeaderContent(String pageHeaderContent) {
+		this.pageHeaderContent.setValue(pageHeaderContent == null ? "" : pageHeaderContent);
 		return this;
 	}
 	
@@ -804,6 +826,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 			config.set("defaultFontFace", this.defaultFontFace.getValue());
 			config.set("defaultPageIcon", this.defaultPageIcon.getValue());
 			config.set("defaultStylesheet", this.defaultStylesheet.getValue());
+			config.set("pageHeaderContent", this.pageHeaderContent.getValue());
 			config.set("cacheMaxAge", this.cacheMaxAge.getValue());
 			config.set("areDirectoriesForbidden", this.areDirectoriesForbidden.getValue());
 			config.set("calculateDirectorySizes", this.calculateDirectorySizes.getValue());
@@ -895,6 +918,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 			this.defaultFontFace.setValue(config.getString("defaultFontFace", this.defaultFontFace.getValue()));
 			this.defaultPageIcon.setValue(config.getString("defaultPageIcon", this.defaultPageIcon.getValue()));
 			this.defaultStylesheet.setValue(config.getString("defaultStylesheet", this.defaultStylesheet.getValue()));
+			this.pageHeaderContent.setValue(config.getString("pageHeaderContent", this.pageHeaderContent.getValue()));
 			this.cacheMaxAge.setValue(Long.valueOf(config.getLong("cacheMaxAge", this.cacheMaxAge.getValue().longValue())));
 			this.areDirectoriesForbidden.setValue(Boolean.valueOf(config.getBoolean("areDirectoriesForbidden", this.areDirectoriesForbidden.getValue().booleanValue())));
 			this.calculateDirectorySizes.setValue(Boolean.valueOf(config.getBoolean("calculateDirectorySizes", this.calculateDirectorySizes.getValue().booleanValue())));
@@ -966,8 +990,10 @@ public final class DomainDirectory implements DisposableUUIDData {
 					}
 				}
 			}
+			JavaWebServer.println("\tLoaded domain \"" + this.getDisplayName() + "\" from file!");
 			return true;
 		} catch(Throwable ignored) {
+			JavaWebServer.println("\tFailed to load domain from file \"" + this.uuid.getValue().toString() + ".yml\"!");
 			return false;
 		}
 		

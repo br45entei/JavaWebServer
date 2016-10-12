@@ -18,11 +18,13 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
 import java.util.Set;
@@ -48,8 +50,68 @@ import org.mozilla.universalchardet.UniversalDetector;
 public strictfp class StringUtils {
 	private static final Random	random	= new Random();
 	
+	/** @param string The String to hash
+	 * @return The resulting hash
+	 * @see <a
+	 *      href="http://stackoverflow.com/a/1660613/2398263">stackoverflow.com</a> */
+	public static final long hash(String string) {
+		long h = 1125899906842597L; // prime
+		int len = string.length();
+		
+		for(int i = 0; i < len; i++) {
+			h = 31 * h + string.charAt(i);
+		}
+		return h;
+	}
+	
 	public static final int getRandomIntBetween(int min, int max) {
 		return random.nextInt(max - min) + min;
+	}
+	
+	public static final long shuffle(List<?> list) {
+		long rtrn = random.nextLong();
+		Collections.shuffle(list, new Random(rtrn));
+		return rtrn;
+	}
+	
+	public static final void shuffle(List<?> list, long seed) {
+		Collections.shuffle(list, new Random(seed));
+	}
+	
+	/** @param map The map containing the request arguments
+	 * @param includeURLFormatting Whether or not the preceding <code>?</code>
+	 *            is included
+	 * @return The resulting String */
+	public static final String requestArgumentsToString(Map<String, String> map, boolean includeURLFormatting) {
+		return requestArgumentsToString(map, includeURLFormatting, (String[]) null);
+	}
+	
+	public static final String[] stringMapToStringArray(Map<String, String> map, char keyValueSeparatorChar, char setSeparatorChar) {
+		if(map == null || map.isEmpty()) {
+			return new String[0];
+		}
+		Set<Entry<String, String>> entrySet = map.entrySet();
+		String[] rtrn = new String[entrySet.size()];
+		int i = 0;
+		for(Entry<String, String> entry : entrySet) {
+			rtrn[i] = (i == 0 ? "" : setSeparatorChar + "") + entry.getKey() + keyValueSeparatorChar + entry.getValue();
+			i++;
+		}
+		return rtrn;
+	}
+	
+	public static final String requestArgumentsToString(Map<String, String> map, boolean includeURLFormatting, String... exclusions) {
+		if(map == null || map.isEmpty()) {
+			return "";
+		}
+		if(exclusions == null) {
+			return (includeURLFormatting ? "?" : "") + stringArrayToString(stringMapToStringArray(map, '=', '&'));
+		}
+		Map<String, String> copy = new HashMap<>(map);
+		for(String exclusion : exclusions) {
+			copy.remove(exclusion);
+		}
+		return (includeURLFormatting ? "?" : "") + stringArrayToString(stringMapToStringArray(copy, '=', '&'));
 	}
 	
 	public static final String		cacheValidatorTimePattern	= "EEE, dd MMM yyyy HH:mm:ss 'GMT'";
@@ -122,7 +184,7 @@ public strictfp class StringUtils {
 		return count + 1;
 	}
 	
-	public static final String requestArgumentsToString(HashMap<String, String> requestArguments, String... argumentsToIgnore) {
+	public static final String requestArgumentsToString(HashMap<String, String> requestArguments, String... argumentsToIgnore) {//Hmm, I like the new one better, but I'll leave this one.
 		String rtrn = "?";
 		final HashMap<String, String> reqArgs = new HashMap<>(requestArguments);
 		for(Entry<String, String> entry : requestArguments.entrySet()) {
@@ -140,6 +202,16 @@ public strictfp class StringUtils {
 			addedAnyArguments = true;
 		}
 		return rtrn.equals("?") ? "" : rtrn;
+	}
+	
+	public static final String stringArrayToString(String... args) {
+		String rtrn = "";
+		if(args != null) {
+			for(String str : args) {
+				rtrn += str;
+			}
+		}
+		return rtrn;
 	}
 	
 	/** @param args The string array to copy

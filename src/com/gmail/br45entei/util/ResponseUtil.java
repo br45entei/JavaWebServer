@@ -46,14 +46,14 @@ public class ResponseUtil {
 		JavaWebServer.connectedClients.remove(clientInfo);
 	}
 	
-	public static final void send408Response(final Socket s, final String clientAddress) throws IOException {
+	public static final void send408Response(final Socket s, final String clientAddress, HTTPClientRequest request) throws IOException {
 		String detectedEncodingOfStyleSheet;
 		try {
 			detectedEncodingOfStyleSheet = StringUtils.getDetectedEncoding(new File(FilenameUtils.normalize(JavaWebServer.homeDirectory.getAbsolutePath() + File.separatorChar + JavaWebServer.DEFAULT_STYLESHEET)));
 		} catch(Throwable ignored) {
 			detectedEncodingOfStyleSheet = null;
 		}
-		new HTTPServerResponse("HTTP/1.1", HTTP_408, false, StandardCharsets.UTF_8)//
+		new HTTPServerResponse("HTTP/1.1", HTTP_408, false, StandardCharsets.UTF_8, request)//
 		.setHeader("Vary", "Accept-Encoding")//
 		.setHeader("Date", StringUtils.getCurrentCacheTime())//
 		.setHeader("Content-Type", "text/html; charset=UTF-8")//

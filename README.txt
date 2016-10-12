@@ -23,6 +23,8 @@ welcome.
 
 Changelog:
 
+Version 1.0_46: Changed version scheming to Major_Minor format
+
 Version 1.0: Added project to GitHub
 	Notes: The "JavaWebServer" and other classes as well are
 		very large, as I need to work on organizing code into

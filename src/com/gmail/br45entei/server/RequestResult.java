@@ -1,5 +1,7 @@
 package com.gmail.br45entei.server;
 
+import com.gmail.br45entei.util.StringUtil;
+
 import java.io.IOException;
 
 public final class RequestResult {
@@ -24,7 +26,7 @@ public final class RequestResult {
 	
 	public final void markCompleted() {
 		if(this.request != null) {
-			this.request.markCompleted();
+			this.request.markCompleted("Request ended normally at: " + StringUtil.getSystemTime(false, false, true));
 			this.request = null;
 			System.gc();
 		}

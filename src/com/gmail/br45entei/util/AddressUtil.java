@@ -1,5 +1,7 @@
 package com.gmail.br45entei.util;
 
+import com.gmail.br45entei.JavaWebServer;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
@@ -36,7 +38,7 @@ public class AddressUtil {
 			isHostValid = false;
 		}
 		if(host.isEmpty() || !isHostValid) {
-			host = getIp();
+			JavaWebServer.println("\t--- Detected unresolved host: " + host);//host = getIp();
 		}
 		return host + port;
 	}
@@ -55,6 +57,9 @@ public class AddressUtil {
 		}
 		String[] octets = ip.split("\\.");
 		if(octets.length == 4) {
+			if(octets[0].contains("/")) {
+				octets[0] = octets[0].substring(octets[0].indexOf("/"));
+			}
 			final String s1 = Integer.toHexString(Integer.parseInt(octets[0])) + convertIntToHex(Integer.parseInt(octets[1]));
 			final String s2 = Integer.toHexString(Integer.parseInt(octets[2])) + convertIntToHex(Integer.parseInt(octets[3]));
 			return "[::ffff:" + (s1.startsWith("00") ? s1.substring(2) : s1) + ":" + (s2.startsWith("00") ? s2.substring(2) : s2) + "]" + port;

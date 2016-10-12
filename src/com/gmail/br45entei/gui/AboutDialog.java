@@ -1,6 +1,3 @@
-/**
- * 
- */
 package com.gmail.br45entei.gui;
 
 import com.gmail.br45entei.JavaWebServer;
@@ -27,8 +24,8 @@ public class AboutDialog extends Dialog {
 	
 	/** Create the dialog.
 	 * 
-	 * @param parent
-	 * @param style */
+	 * @param parent The parent shell
+	 * @param style the SWT style */
 	public AboutDialog(Shell parent, int style) {
 		super(parent, style);
 		this.parentShell = parent;

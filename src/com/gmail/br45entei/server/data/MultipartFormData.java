@@ -24,11 +24,11 @@ public final class MultipartFormData implements Closeable {
 	
 	/** A HashMap containing any form data retrieved while parsing the input data */
 	public final HashMap<String, String>	formData	= new HashMap<>();
-	/** An ArrayList containing any {@link FileData} instances that may have been
+	/** An ArrayList containing any {@link FileDataUtil} instances that may have been
 	 * created while parsing the input data
 	 * 
 	 * @see #close() */
-	public final ArrayList<FileData>		fileData	= new ArrayList<>();
+	public final ArrayList<FileDataUtil>		fileData	= new ArrayList<>();
 	
 	/** @param data The data to parse
 	 * @param contentType The content type sent from the client(must include the
@@ -199,7 +199,7 @@ public final class MultipartFormData implements Closeable {
 				}
 				if(fileContentType != null && fileData.size() != 0 && fileName != null && !fileName.isEmpty()) {
 					status.setStatus("Storing file data for later use...");
-					this.fileData.add(new FileData(fileData, fileName, fileContentType));
+					this.fileData.add(new FileDataUtil(fileData, fileName, fileContentType));
 					fileData = new DisposableByteArrayOutputStream();
 				} else /*if(HTTPClientRequest.debug)*/{
 					PrintUtil.printlnNow("\t /!\\Failed to record collected file data: one of the following is either null or empty(meaning \"0\"): fileContentType: \"" + fileContentType + "\"; fileData.size(): \"" + fileData.size() + "\"; fileName: \"" + fileName + "\";\r\n\t/___\\");
@@ -288,7 +288,7 @@ public final class MultipartFormData implements Closeable {
 	/** Clears the {@link #fileData} ArrayList and the {@link #formData} HashMap */
 	@Override
 	public final void close() {
-		for(FileData data : this.fileData) {
+		for(FileDataUtil data : this.fileData) {
 			data.close();
 		}
 		this.fileData.clear();

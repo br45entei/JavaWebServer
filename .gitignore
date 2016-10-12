@@ -62,3 +62,7 @@ MANIFEST.MF
 Export_to_jars.jardesc
 output.apic
 TODO.txt
+*.p7b
+redsandbox.ddns.net.pfx
+wrkDir
+wrkDir_old

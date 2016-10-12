@@ -74,6 +74,11 @@ public class ResourceFactory {
 		return ResourceFactory.class.getResourceAsStream(path);
 	}
 	
+	/** @param zipFile The .zip file to un-zip
+	 * @param folder The destination folder to un-zip into.
+	 * @return Whether or not the un-zip operation was successful.
+	 * @throws IOException Thrown if an error occurred while un-zipping the
+	 *             files. */
 	public static boolean unZipFile(File zipFile, File folder) throws IOException {
 		if(folder == null || zipFile == null) {
 			return false;

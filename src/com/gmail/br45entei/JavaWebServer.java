@@ -15,12 +15,14 @@ import com.gmail.br45entei.server.RequestResult;
 import com.gmail.br45entei.server.ReusedConn;
 import com.gmail.br45entei.server.SocketConnectResult;
 import com.gmail.br45entei.server.data.ClientConnectTime;
+import com.gmail.br45entei.server.data.Credential;
 import com.gmail.br45entei.server.data.DomainDirectory;
-import com.gmail.br45entei.server.data.FileData;
+import com.gmail.br45entei.server.data.FileDataUtil;
 import com.gmail.br45entei.server.data.FileInfo;
 import com.gmail.br45entei.server.data.NaughtyClientData;
 import com.gmail.br45entei.server.data.Property;
 import com.gmail.br45entei.server.data.RestrictedFile;
+import com.gmail.br45entei.server.data.SocketWrapper;
 import com.gmail.br45entei.server.data.forum.ForumBoard;
 import com.gmail.br45entei.server.data.forum.ForumClientResponder;
 import com.gmail.br45entei.server.data.forum.ForumComment;
@@ -89,6 +91,7 @@ import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLServerSocketFactory;
 import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 
 import org.apache.commons.io.FileDeleteStrategy;
 import org.apache.commons.io.FilenameUtils;
@@ -124,24 +127,48 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 	
 	protected final Thread											sslThread;
 	protected final Thread											adminThread;
+	/** Whether or not the SSL thread pool is enabled. Changing this value will
+	 * require restarting the server for changes to take effect. */
 	public static boolean											enableSSLThread					= false;
+	/** Whether or not the Administration Interface is enabled for this server.
+	 * Changing this value will require restarting the server for changes to
+	 * take effect. */
 	public static boolean											enableAdminInterface			= true;
 	
+	/** If the type of certificate is a "key" store, set this to true. Otherwise,
+	 * set to false to use a "trust" store certificate. */
 	public static boolean											sslStore_KeyOrTrust				= true;
+	/** The absolute path to the SSL store file(SSL certificate) */
 	public static String											storePath						= "";
+	/** The SSL store password(SSL certificate password) */
 	public static String											storePassword					= "";
 	
+	/** The prefix of the server thread pool threads */
 	public static final String										ThreadName						= "ServerThread";
+	/** The prefix of the SSL thread pool threads */
 	public static final String										SSLThreadName					= "SSLServerThread";
+	/** The prefix of the Administration thread pool threads */
 	public static final String										AdminThreadName					= "ServerAdminThread";
 	
+	/** Whether or not byte range requests are supported for normal file requests */
 	public static boolean											allowByteRangeRequests			= true;
 	
 	private static final String										shutdownStr						= "rlXmsns_" + StringUtil.nextSessionId();																																																																																//UUID.randomUUID().toString();
 																																																																																																																			
+	/** The name of this application. */
 	public static final String										APPLICATION_NAME				= "JavaWebServer";
-	public static final String										APPLICATION_VERSION				= "1.0";
+	/** The major version of this application. */
+	public static final String										APPLICATION_VERSION_MAJOR		= "1.0";
+	
+	/** The minor version of this application. */
+	public static final String										APPLICATION_VERSION_MINOR		= "47";
+	
+	/** This application's version. */
+	public static final String										APPLICATION_VERSION				= JavaWebServer.APPLICATION_VERSION_MAJOR + "_" + JavaWebServer.APPLICATION_VERSION_MINOR;
+	
+	/** The year in which this software is declared copyrighted. */
 	public static final String										COPYRIGHT_YEAR					= "2016";
+	/** The author of this server software. */
 	public static final String										APPLICATION_AUTHOR				= "Brian_Entei";
 	
 	/** The legal notice that is printed to the console. */
@@ -151,29 +178,57 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 	private final Thread											currentThread;
 	private final Thread											arrayListCleanupThread;
 	
+	/** The recommended number of normal server threads, or the number of cores
+	 * that the host machine has multiplied by 1000.<br>
+	 * For example, a server with 4 cores would get 4000 recommended server
+	 * threads. This can be changed in the options menu UI or by setting
+	 * {@link #overrideThreadPoolSize} and then running
+	 * {@link #updateThreadPoolSizes()}. */
 	public static final int											fNumberOfThreads				= (1000 * Runtime.getRuntime().availableProcessors());
 	private static final ThreadPoolExecutor							fThreadPool						= ((ThreadPoolExecutor) Executors.newFixedThreadPool(fNumberOfThreads/*, namedThreadFactory*/));
 	protected static final ThreadPoolExecutor						fSSLThreadPool					= ((ThreadPoolExecutor) Executors.newFixedThreadPool(fNumberOfThreads));
 	protected static final ExecutorService							fAdminThreadPool				= Executors.newFixedThreadPool(20);
 	
-	protected static boolean										serverActive					= true;
+	protected static volatile boolean								serverActive					= true;
 	
+	/** The name of this server that will be used in normal client requests and
+	 * administration requests */
 	public static final String										SERVER_NAME						= "Entei_Server";
+	/** The name of this server that will be used when clients issue a proxy
+	 * request(only if the proxy functionality is enabled, otherwise the request
+	 * is rejected or marked as a mis-directed request(HTTP 421) */
 	public static final String										PROXY_SERVER_NAME				= "entei";
-	/** The default "Server: " header that is sent to clients */
+	/** The default "Server: " header that is sent to clients
+	 * 
+	 * @see DomainDirectory#getServerName() */
 	public static final String										SERVER_NAME_HEADER				= SERVER_NAME + "/" + APPLICATION_VERSION;
+	/** The default file name that will be served to the client when it requests
+	 * the home directory(usually just "/", or sometimes "/htdocs").
+	 * 
+	 * @see DomainDirectory#getDefaultFileName() */
 	public static final String										DEFAULT_FILE_NAME				= "index.html";
 	
+	/** The server-wide default page icon(usually a .ico or .png)
+	 * 
+	 * @see DomainDirectory#getDefaultPageIcon() */
 	public static final String										DEFAULT_PAGE_ICON				= "/favicon.ico";
+	/** The server-wide default stylesheet(CSS)
+	 * 
+	 * @see DomainDirectory#getDefaultStylesheet()
+	 * @see DomainDirectory#getDefaultStyleSheetFromFileSystem() */
 	public static final String										DEFAULT_STYLESHEET				= "/layout.css";
 	
 	/** The current working directory as depicted by
 	 * {@code System.getProperty("user.dir")} */
 	public static final File										rootDir							= new File(System.getProperty("user.dir"));
 	
+	/** The name of the general server options file */
 	public static final String										optionsFileName					= "options.txt";
+	/** The name of the HTTPS(SSL) options file */
 	public static final String										sslOptionsFileName				= "sslOptions.txt";
+	/** The name of the Administration options file */
 	public static final String										adminOptionsFileName			= "adminOptions.txt";
+	/** The name of the Proxy options file */
 	public static final String										proxyOptionsFileName			= "proxyOptions.txt";
 	
 	/** The concurrent list of all currently connected sockets(clients). */
@@ -184,6 +239,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 	public static final String										sinBinFolderName				= "SinBin";
 	/** The concurrent list of banned clients, or "SinBin" */
 	public static final ConcurrentLinkedQueue<NaughtyClientData>	sinBin							= new ConcurrentLinkedQueue<>();
+	private static Thread											sinBinUpkeepThread;
 	
 	/** The default realm used when creating a new restricted file or page. */
 	public static final String										DEFAULT_AUTHORIZATION_REALM		= "Forbidden File(s)";
@@ -282,6 +338,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 	 * @return The ban status of the given client if it is still banned, or null
 	 *         otherwise. */
 	public static final NaughtyClientData getBannedClient(String ip) {
+		ip = ip.startsWith("/") ? ip.substring(1) : ip;
 		for(NaughtyClientData naughty : new ArrayList<>(sinBin)) {
 			if(naughty.clientIp.equalsIgnoreCase(ip)) {
 				if(naughty.inSinBinUntil == -1L) {
@@ -336,6 +393,26 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		}
 	}
 	
+	public static final class BanCheckResult {
+		
+		private final boolean			isBanned;
+		private final NaughtyClientData	data;
+		
+		public BanCheckResult(NaughtyClientData data, boolean isBanned) {
+			this.isBanned = isBanned;
+			this.data = data;
+		}
+		
+		public final NaughtyClientData getData() {
+			return this.data;
+		}
+		
+		public final boolean isBanned() {
+			return this.isBanned;
+		}
+		
+	}
+	
 	/** @param ip The ip address of the client to check
 	 * @param newConnection Whether or not the client is connecting to this
 	 *            server for the first time(default value is true)
@@ -348,12 +425,12 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 	 *         progress, and may ban clients that load multiple files from a
 	 *         single webpage normally.(Usually, any one device will only open 6
 	 *         concurrent connections to the same server.) */
-	public static final boolean isIpBanned(String ip, boolean newConnection) {
+	public static final BanCheckResult isIpBanned(String ip, boolean newConnection) {
 		ip = AddressUtil.getClientAddressNoPort(ip);
 		NaughtyClientData check = getNaughtyClientDataFor(ip);//getBannedClient(ip);
 		if(check != null) {
 			if(check.isBanned()) {
-				return true;
+				return new BanCheckResult(check, true);
 			}
 		}
 		if(newConnection) {
@@ -363,7 +440,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			}
 			return isIpBanned(ip, false);
 		}
-		return false;
+		return new BanCheckResult(check, false);
 	}
 	
 	//=======================
@@ -500,6 +577,11 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			}
 			throw new IllegalAccessError("Not a valid server thread!");
 		}
+	}
+	
+	/** @return True if the SSL thread is enabled and active. */
+	public static final boolean isSSLThreadEnabled() {
+		return enableSSLThread && instance.sslThread.isAlive();
 	}
 	
 	//====
@@ -942,6 +1024,24 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				}
 			}
 		}
+		if(sinBinUpkeepThread == null) {
+			sinBinUpkeepThread = new Thread() {
+				@Override
+				public final void run() {
+					while(serverActive) {
+						for(NaughtyClientData data : sinBin) {
+							if(!data.isBanned()) {
+								data.dispose();
+							}
+							CodeUtil.sleep(10L);
+						}
+						CodeUtil.sleep(250L);
+					}
+				}
+			};
+			sinBinUpkeepThread.setDaemon(false);
+			sinBinUpkeepThread.start();
+		}
 	}
 	
 	private static final void saveSinBinToFile() {
@@ -1330,7 +1430,6 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					PrintUtil.printToConsole();
 					PrintUtil.printErrToConsole();
 					while(serverActive) {
-						@SuppressWarnings("resource")
 						final Socket s = socket.accept();
 						if(!serverActive) {
 							try {
@@ -1344,23 +1443,40 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 							break;
 						}
 						Runnable task = new Runnable() {
+							@SuppressWarnings("resource")
 							@Override
 							public void run() {
 								replaceCurrentThreadName(AdminThreadName);
 								sockets.add(s);
+								Socket sock = s;
 								try {
-									s.setTcpNoDelay(true);
-									final InputStream in = s.getInputStream();
-									RequestResult result = HandleAdminRequest(s, in, ReusedConn.FALSE);//HandleAdminRequest(s);
+									sock.setTcpNoDelay(true);
+									final com.gmail.br45entei.server.data.InputStreamReader in = new com.gmail.br45entei.server.data.InputStreamReader(s.getInputStream());
+									if(in.isNextByteClientHello() && isSSLThreadEnabled()) {
+										SocketWrapper wrappedS = new SocketWrapper(s);
+										wrappedS.insertByte(com.gmail.br45entei.server.data.InputStreamReader.sslClientHello);//Put eet baaackkkkkkkkk!!!111111!!!!one!!1 lol, it won't work without the first clienthello byte. That's kinda important. Kinda.
+										SSLSocketFactory sslSf = (SSLSocketFactory) SSLSocketFactory.getDefault();
+										SSLSocket sslSocket = (SSLSocket) sslSf.createSocket(wrappedS, null, wrappedS.getPort(), false);
+										sslSocket.setUseClientMode(false);
+										sock = sslSocket;
+										sslSocket.startHandshake();//Let the new ssl socket we just 'hackingly' made handle the handshake for us.
+										in.setSource(sock.getInputStream());
+										//... holy crap, I just implemented "HTTP/HTTPS-on-the-same-port" functionality! Yay me! Not impressed? Well, poo on you then. It was hard and fun at the same time. I'm happy. I can explode now.(jk)
+									}
+									RequestResult result = HandleAdminRequest(sock, in, ReusedConn.FALSE);//HandleAdminRequest(s);
+									HTTPClientRequest req = result.getRequest();
+									if(req != null) {
+										req.markCompleted(result.exception == null ? "Administration Request ended normally at: " + StringUtil.getSystemTime(false, false, true) : Functions.throwableToStr(result.exception));
+									}
 									System.gc();
 									PrintUtil.printToConsole();
 									PrintUtil.printErrToConsole();
-									if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
+									if(sock.isClosed() || sock.isInputShutdown() || sock.isOutputShutdown()) {
 										result.reuse.reuse = false;
 									}
 									if(result.reuse.reuse) {
 										long startTime = System.currentTimeMillis();
-										while((result = HandleAdminRequest(s, in, result.reuse)).reuse.reuse) {
+										while((result = HandleAdminRequest(sock, in, result.reuse)).reuse.reuse) {
 											if(System.currentTimeMillis() - startTime < 250L) {//FIXME There's a strange bug/glitch that causes CPU usage to spike when a request starts looping for some reason, so this is a temporary hack/workaround until I can find it...
 												result.reuse.reuse = false;
 												System.gc();
@@ -1371,7 +1487,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 											System.gc();
 											PrintUtil.printToConsole();
 											PrintUtil.printErrToConsole();
-											if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
+											if(sock.isClosed() || sock.isInputShutdown() || sock.isOutputShutdown()) {
 												result.reuse.reuse = false;
 												break;
 											}
@@ -1458,6 +1574,10 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									}
 									if(result.reuse.reuse) {
 										while((result = HandleRequest(s, in, true, result.reuse)).reuse.reuse) {
+											HTTPClientRequest req = result.getRequest();
+											if(req != null) {
+												req.markCompleted(result.exception == null ? "SSL Request ended normally at: " + StringUtil.getSystemTime(false, false, true) : Functions.throwableToStr(result.exception));
+											}
 											System.gc();
 											PrintUtil.printToConsole();
 											PrintUtil.printErrToConsole();
@@ -1604,7 +1724,6 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			PrintUtil.printToConsole();
 			PrintUtil.printErrToConsole();
 			while(serverActive) {
-				@SuppressWarnings("resource")
 				final Socket s = instance.socket.accept();
 				if(!serverActive) {
 					try {
@@ -1619,35 +1738,52 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				}
 				Runnable task = new Runnable() {
 					@Override
+					@SuppressWarnings("resource")
 					public void run() {
 						replaceCurrentThreadName(ThreadName);
 						sockets.add(s);
 						boolean wasProxyRequest = false;
+						Socket sock = s;
 						try {
-							s.setTcpNoDelay(true);
-							@SuppressWarnings("resource")
-							InputStream in = s.getInputStream();
-							RequestResult result = HandleRequest(s, in, false);
+							sock.setTcpNoDelay(true);
+							final com.gmail.br45entei.server.data.InputStreamReader in = new com.gmail.br45entei.server.data.InputStreamReader(s.getInputStream());
+							if(in.isNextByteClientHello() && isSSLThreadEnabled()) {//Enables HTTP/HTTPS on one port!
+								SocketWrapper wrappedS = new SocketWrapper(s);
+								wrappedS.insertByte(com.gmail.br45entei.server.data.InputStreamReader.sslClientHello);
+								SSLSocketFactory sslSf = (SSLSocketFactory) SSLSocketFactory.getDefault();
+								SSLSocket sslSocket = (SSLSocket) sslSf.createSocket(wrappedS, null, wrappedS.getPort(), false);
+								sslSocket.setUseClientMode(false);
+								sock = sslSocket;
+								sslSocket.startHandshake();
+								in.setSource(sock.getInputStream());
+							}
+							RequestResult result = HandleRequest(sock, in, false);
 							wasProxyRequest = result.wasProxyRequest();
 							System.gc();
 							PrintUtil.printToConsole();
 							PrintUtil.printErrToConsole();
-							if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
+							if(sock.isClosed() || sock.isInputShutdown() || sock.isOutputShutdown()) {
 								result.reuse.reuse = false;
 							}
 							if(result.reuse.reuse) {
-								while((result = HandleRequest(s, in, false, result.reuse)).reuse.reuse) {//reuse reuse reuse... XD
+								while((result = HandleRequest(sock, in, false, result.reuse)).reuse.reuse) {//reuse reuse reuse... XD
+									HTTPClientRequest req = result.getRequest();
+									if(req != null) {
+										req.markCompleted(result.exception == null ? "Request ended normally at: " + StringUtil.getSystemTime(false, false, true) : Functions.throwableToStr(result.exception));
+									}
 									System.gc();
 									PrintUtil.printToConsole();
 									PrintUtil.printErrToConsole();
-									if(s.isClosed() || s.isInputShutdown() || s.isOutputShutdown()) {
+									if(sock.isClosed() || sock.isInputShutdown() || sock.isOutputShutdown()) {
 										result.reuse.reuse = false;
 										break;
 									}
 								}
 								wasProxyRequest = result.wasProxyRequest();
 							}
-							result.markCompleted();
+							if(!wasProxyRequest) {//If it was a proxy request, the request may still be going on while this section of code is running, so we'll let that thread deal with cleanup.
+								result.markCompleted();
+							}
 						} catch(Throwable e) {
 							e.printStackTrace();
 						}
@@ -1816,6 +1952,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		final String httpProtocol = (https ? "https://" : "http://");
 		final FileInfo info = clientInfo.requestedFile;
 		File requestedFile = new File(info.filePath);
+		final boolean isFileRestrictedOrHidden = RestrictedFile.isFileForbidden(requestedFile) || RestrictedFile.isFileRestricted(requestedFile) || RestrictedFile.isHidden(requestedFile, true);
 		
 		String reqFilePath = FilenameUtils.normalize(requestedFile.getAbsolutePath());
 		String wrkDirPath = FilenameUtils.normalize(JavaWebServer.rootDir.getAbsolutePath());
@@ -1853,12 +1990,14 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		
 		String administrateFileCheck = request.requestArguments.get("administrateFile");
 		final boolean administrateFile = administrateFileCheck != null ? (administrateFileCheck.equals("1") || administrateFileCheck.equalsIgnoreCase("true")) : false;
+		String modifyFileCheck = request.requestArguments.get("modifyFile");
+		final boolean modifyFile = modifyFileCheck != null ? (modifyFileCheck.equals("1") || modifyFileCheck.equalsIgnoreCase("true")) : false;
 		
 		final String folderName = FilenameUtils.getName(FilenameUtils.getFullPathNoEndSeparator(requestedFile.getAbsolutePath() + File.separatorChar));
-		if(administrateFile) {
+		if(administrateFile || modifyFile) {
 			PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
-			if(handleAdministrateFile(request, requestedFile, clientAddress, versionToUse, httpProtocol, outStream, out, domainDirectory, keepAlive, folderName, pagePrefix, clientInfo)) {
-				println("\t*** " + versionToUse + " - File administration");
+			if(handleAdministrateFile(request, requestedFile, clientAddress, versionToUse, httpProtocol, outStream, out, domainDirectory, keepAlive, folderName, pagePrefix, clientInfo, modifyFile ? false : administrateFile)) {
+				println("\t*** " + versionToUse + " - File " + (modifyFile ? "modification" : "administration"));
 				return;
 			}
 			out.println(versionToUse + " 500 Internal Server Error");
@@ -1880,6 +2019,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					+ "\t\t<title>500 Internal Server Error - " + domainDirectory.getServerName() + "</title>\r\n"//
 					+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 					+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+					+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 					+ "\t</head>\r\n"//
 					+ "\t<body>\r\n"//
 					+ "\t\t<h1>Error 500 - Error Administrating File</h1><hr>\r\n"//
@@ -1940,6 +2080,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 						+ "\t\t<title>Authorization Required - " + domainDirectory.getServerName() + "</title>\r\n"//
 						+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 						+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+						+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 						+ "\t</head>\r\n"//
 						+ "\t<body>\r\n"//
 						+ "\t\t<h1>Authorization Required</h1><hr>\r\n"//
@@ -2195,6 +2336,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
 								(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
 								AUTO_RESIZE_JAVASCRIPT + //
+								(isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n") + //
 								"\t</head>\r\n" + //
 								"\t<body>\r\n" + //
 								"\t\t" + pageHeader + "<br>\r\n" + //
@@ -2225,6 +2367,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 							"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
 							(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
 							AUTO_RESIZE_JAVASCRIPT + //
+							(isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n") + //
 							"\t</head>\r\n" + //
 							"\t<body>\r\n" + //
 							"\t\t" + pageHeader + "<br>\r\n" + //
@@ -2254,6 +2397,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 						"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
 						(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
 						AUTO_RESIZE_JAVASCRIPT + //
+						(isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n") + //
 						"\t</head>\r\n" + //
 						"\t<body>\r\n" + //
 						"\t\t" + pageHeader + "<br>\r\n" + //
@@ -2286,6 +2430,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
 					(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
 					AUTO_RESIZE_JAVASCRIPT + //
+					(isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n") + //
 					"\t</head>\r\n" + //
 					"\t<body>\r\n" + //
 					"\t\t" + pageHeader + "\r\n" + //
@@ -2327,6 +2472,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
 					(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
 					AUTO_RESIZE_JAVASCRIPT + //
+					(isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n") + //
 					"\t</head>\r\n" + //
 					"\t<body>\r\n" + //
 					"\t\t" + pageHeader + "\r\n" + //
@@ -2422,7 +2568,12 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			for(int i = 0; i < c.length; i++) {
 				String fileName = c[i];
 				File file = new File(requestedFile, fileName);
-				if(file.exists() && !RestrictedFile.isHidden(file)) {
+				boolean isHidden = RestrictedFile.isHidden(file);
+				if(isHidden) {
+					Boolean check = RestrictedFile.isIPAllowedFor(s.getInetAddress().getHostAddress(), file);
+					isHidden = check == null ? false : !check.booleanValue();
+				}
+				if(file.exists() && !isHidden) {
 					Integer key = Integer.valueOf(j);
 					files.put(key, fileName);
 					j++;
@@ -2613,6 +2764,8 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		clientInfo.requestedFile.contentLength = String.valueOf(files.size());
 		final String randomLink = domainDirectory.getEnableFilterView() ? MapUtil.getRandomLinkFor(files, path, pathPrefix, domainDirectory, httpProtocol, clientInfo) : null;
 		
+		boolean areThereFiles = false;
+		boolean areThereDirectories = false;
 		boolean doesDirContainMediaFiles = false;
 		for(Entry<Integer, String> entry : files.entrySet()) {
 			String filePath = entry.getValue();
@@ -2625,12 +2778,16 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			}
 			File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
 			if(file.exists()) {
+				areThereFiles |= file.isFile();
+				areThereDirectories |= file.isDirectory();
 				if(isMimeTypeMedia(domainDirectory.getMimeTypeForExtension("." + FilenameUtils.getExtension(file.getAbsolutePath())).toLowerCase())) {
 					doesDirContainMediaFiles = true;
 					break;
 				}
 			}
 		}
+		final String requestArgsNoSort = StringUtils.requestArgumentsToString(request.requestArguments, "sort");
+		
 		final boolean enableMediaInfo = doesDirContainMediaFiles;//TODO && domainDirectory.getEnableMediaInfoParsing();
 		final boolean filterFlag = filter != null && !filter.trim().isEmpty();
 		
@@ -2648,7 +2805,8 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		final String filterView = (domainDirectory.getEnableFilterView() && !options.isEmpty()) ? "\t\t<td>" + (filterFlag ? greenBorder : "") + "<b>Filter view:&nbsp;</b><select onChange=\"window.location.href=this.value\" title=\"Filter list\">\r\n"//
 				+ options + "\t\t</select>" + (filterFlag ? brdrEnd : "") + "</td>\r\n" : (domainDirectory.getEnableFilterView() ? "<td><b>Filter view: (No files to filter)</b></td>\r\n" : "");
 		final String randomLinkView = (randomLink != null ? "\t\t<td><b><a href=\"" + randomLink + "\" rel=\"nofollow\"" + linkTarget + " title=\"(You may need to refresh the page for the next random file to appear)\">Open random file</a></b>&nbsp;</td>\r\n" : "");
-		final String bodyHeader = pageHeader + "\r\n" + (domainDirectory.getEnableAlternateDirectoryListingViews() ? "<table border=\"0\" cellpadding=\"1\" cellspacing=\"1\"><tbody>" + normalView + xmlView + mediaView + (doesDirContainMediaFiles ? mediaList : "") + xspfView + filterView + randomLinkView + "</tbody></table><hr>\r\n" : "");
+		final String randomView = (areThereFiles || areThereDirectories ? "\t\t<td><string>[<a href=\"" + fileLink + requestArgsNoSort + (requestArgsNoSort.isEmpty() ? "?" : "&") + "sort=random\" rel=\"nofollow\" target=\"_blank\" title=\"Click to open a new view with folder content randomized\">Random view</a>]</string></td>\r\n" : "");
+		final String bodyHeader = pageHeader + "\r\n" + (domainDirectory.getEnableAlternateDirectoryListingViews() ? "<table border=\"0\" cellpadding=\"1\" cellspacing=\"1\"><tbody>" + normalView + xmlView + mediaView + (doesDirContainMediaFiles ? mediaList : "") + xspfView + filterView + randomLinkView + randomView + "</tbody></table><hr>\r\n" : "");
 		
 		final String backLink = fileLink + (addSortStr.isEmpty() ? "" : "?" + addSortStr.substring(1)) + (addFilterStr.isEmpty() ? "" : (addSortStr.isEmpty() ? "?" : "&") + addFilterStr.substring(1));
 		
@@ -2915,6 +3073,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
 			(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
 			(fileTable.isEmpty() ? "" : AUTO_RESIZE_JAVASCRIPT) + //
+			(isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n") + //
 			"\t</head>\r\n" + //
 			"\t<body>\r\n" + //
 			"\t\t" + bodyHeader + "\r\n" + //
@@ -2924,6 +3083,8 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		} else if(mediaListFlag && domainDirectory.getEnableMediaList()) {
 			out.println("Expires: " + StringUtil.getCacheTime(System.currentTimeMillis() + 300000L));//5 minutes from now
 			out.println("Content-Type: text/html; charset=UTF-8");//" + info.mimeType);
+			
+			long random = -1L;
 			
 			final ArrayList<Integer> filePaths = new ArrayList<>();
 			if(useSortView && !sort.equalsIgnoreCase("fileNames")) {//XXX Media List Sorting
@@ -2967,6 +3128,18 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					
 				} else if(sort.equalsIgnoreCase("numbers")) {
 					filePaths.addAll(files.keySet());
+				} else if(sort.equalsIgnoreCase("random")) {
+					filePaths.addAll(files.keySet());
+					random = StringUtils.shuffle(filePaths);
+				} else if(sort.startsWith("random_") && sort.length() > 7) {
+					filePaths.addAll(files.keySet());
+					String getRandom = sort.substring(7);
+					if(StringUtils.isStrLong(getRandom)) {
+						random = Long.valueOf(getRandom).longValue();
+					} else {
+						random = StringUtils.hash(getRandom);
+					}
+					StringUtils.shuffle(filePaths, random);
 				}
 				if((!sort.equalsIgnoreCase("types") && isSortReversed) || (sort.equalsIgnoreCase("types") && !isSortReversed)) {
 					Collections.reverse(filePaths);
@@ -2974,7 +3147,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			}
 			int count = 0;
 			int j = 0;
-			String fileTable = "";
+			String fileTable = (random == -1L ? "" : "\t\t<string>[<a href=\"" + fileLink + requestArgsNoSort + (requestArgsNoSort.isEmpty() ? "?" : "&") + "sort=random_" + random + "\" rel=\"nofollow\" title=\"(Permanent link to this randomly generated page)\">Permalink to random list</a>]</string><hr>\r\n");
 			Set<Entry<Integer, String>> entrySet = files.entrySet();
 			final int amt = entrySet.size();
 			for(Entry<Integer, String> entry : entrySet) {
@@ -2989,8 +3162,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				final String filePath;
 				if(useSortView) {
 					if(!filePaths.isEmpty()) {
-						i = filePaths.remove(0);
-						filePath = files.get(i);
+						filePath = files.get((i = filePaths.remove(0)));
 					} else {
 						continue;
 					}
@@ -3065,6 +3237,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			"\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n" + //
 			(domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "") + //
 			(fileTable.isEmpty() ? "" : AUTO_RESIZE_JAVASCRIPT) + //
+			(isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n") + //
 			"\t</head>\r\n" + //
 			"\t<body>\r\n" + //
 			"\t\t" + bodyHeader + "\r\n" + //
@@ -3074,12 +3247,17 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		} else {
 			out.println("Content-Type: text/html; charset=UTF-8");
 			
+			long random = -1L;
+			
 			String fileTable = "\t\t<table border=\"2\" cellpadding=\"3\" cellspacing=\"1\">\r\n" + //TODO File table settings - Make these configurable per-domain!
 			"\t\t\t<tbody>\r\n";
 			
+			RestrictedFile res = RestrictedFile.getSpecificRestrictedFile(requestedFile);
+			res = res == null ? RestrictedFile.getRestrictedFile(requestedFile) : res;
+			final boolean canUsersModifyFiles = res != null ? res.canUsersModifyFiles() : false;
+			
 			if(domainDirectory.getEnableSortView()) {
-				final String reqArgsWithoutSort = StringUtils.requestArgumentsToString(request.requestArguments, "sort");
-				final String link = fileLink + reqArgsWithoutSort + (reqArgsWithoutSort.isEmpty() ? "?" : "&");
+				final String link = fileLink + requestArgsNoSort + (requestArgsNoSort.isEmpty() ? "?" : "&");
 				final String triangleStr = (isSortReversed ? "&nbsp;▲" : "&nbsp;▼");
 				String numberSortLink = "<b><a href=\"" + link + "sort=" + (sort.equalsIgnoreCase("numbers") && !isSortReversed ? "-" : "") + "numbers\" color=\"#000000\"" + linkTarget + ">#" + (sort.equalsIgnoreCase("numbers") ? triangleStr : "") + "</a></b>";
 				String fileNameSortLink = "<b><a href=\"" + link + "sort=" + (sort.equalsIgnoreCase("fileNames") && !isSortReversed ? "-" : "") + "fileNames\" color=\"#000000\"" + linkTarget + ">File Name" + (sort.equalsIgnoreCase("fileNames") ? triangleStr : "") + "</a></b>";
@@ -3087,14 +3265,16 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				String dateSortLink = "<b><a href=\"" + link + "sort=" + (sort.equalsIgnoreCase("dates") && !isSortReversed ? "-" : "") + "dates\" color=\"#000000\"" + linkTarget + ">Date" + (sort.equalsIgnoreCase("dates") ? triangleStr : "") + "</a></b>";
 				String typeSortLink = "<b><a href=\"" + link + "sort=" + (sort.equalsIgnoreCase("types") && !isSortReversed ? "-" : "") + "types\" color=\"#000000\"" + linkTarget + ">Type" + (sort.equalsIgnoreCase("types") ? triangleStr : "") + "</a></b>";
 				
-				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + numberSortLink + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td>" + fileNameSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + sizeSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + dateSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + typeSortLink + "</td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td><b>Media Information</b></td>" : "") + "</tr>\r\n";
+				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + numberSortLink + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td>" + fileNameSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + sizeSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + dateSortLink + "</td><td>" + nonBreakingSpaces + "</td><td>" + typeSortLink + "</td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td><b>Media Information</b></td>" : "") + (canUsersModifyFiles ? "<td>" + nonBreakingSpaces + "</td><td><b>(Management)</b></td>" : "") + "</tr>\r\n";
 			} else {
-				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td><b>#</b></td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><b>File Name</b></td><td>" + nonBreakingSpaces + "</td><td><b>Size</b></td><td>" + nonBreakingSpaces + "</td><td><b>Date</b></td><td>" + nonBreakingSpaces + "</td><td><b>Type</b></td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td><b>Media Information</b></td>" : "") + "</tr>\r\n";
+				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td><b>#</b></td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><b>File Name</b></td><td>" + nonBreakingSpaces + "</td><td><b>Size</b></td><td>" + nonBreakingSpaces + "</td><td><b>Date</b></td><td>" + nonBreakingSpaces + "</td><td><b>Type</b></td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td><b>Media Information</b></td>" : "") + (canUsersModifyFiles ? "<td>" + nonBreakingSpaces + "</td><td><b>(Management)</b></td>" : "") + "</tr>\r\n";
 			}
 			
 			if(parentFileLink != null) {
+				RestrictedFile parentRes = RestrictedFile.getSpecificRestrictedFile(parentFile);
+				parentRes = parentRes == null ? RestrictedFile.getRestrictedFile(parentFile) : parentRes;
 				FileInfo curInfo = new FileInfo(parentFile, domainDirectory);
-				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>(-)</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + parentFileLink + (!wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + "><b>../(Up)</b></a></td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.mimeType + (RestrictedFile.isFileForbidden(parentFile) ? "\t\t(Forbidden)" : "") + "</td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td>(-)</td>" : "") + "</tr>\r\n";
+				fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>(-)</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + parentFileLink + (!wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + "><b>../(Up)</b></a></td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.mimeType + (RestrictedFile.isFileForbidden(parentFile) ? "\t\t(Forbidden)" : "") + "</td>" + (enableMediaInfo ? "</td><td>" + nonBreakingSpaces + "</td><td>(-)</td>" : "") + ((canUsersModifyFiles) ? "<td>" + nonBreakingSpaces + "</td><td>" + (parentRes != null && parentRes.canUsersModifyFiles() ? getManagementStrForFile(parentFileLink, curInfo.fileName, parentRes, false) : "(-)") + "</td></tr>\r\n" : "") + "</tr>\r\n";
 			}
 			final ArrayList<Integer> folderPaths = new ArrayList<>();
 			final ArrayList<Integer> filePaths = new ArrayList<>();
@@ -3140,6 +3320,18 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					
 				} else if(sort.equalsIgnoreCase("numbers")) {
 					filePaths.addAll(files.keySet());
+				} else if(sort.equalsIgnoreCase("random")) {
+					filePaths.addAll(files.keySet());
+					random = StringUtils.shuffle(filePaths);
+				} else if(sort.startsWith("random_") && sort.length() > 7) {
+					filePaths.addAll(files.keySet());
+					String getRandom = sort.substring(7);
+					if(StringUtils.isStrLong(getRandom)) {
+						random = Long.valueOf(getRandom).longValue();
+					} else {
+						random = StringUtils.hash(getRandom);
+					}
+					StringUtils.shuffle(filePaths, random);
 				}
 				if((!sort.equalsIgnoreCase("types") && isSortReversed) || (sort.equalsIgnoreCase("types") && !isSortReversed)) {
 					Collections.reverse(filePaths);
@@ -3190,6 +3382,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				folderPaths.addAll(filePathsCopy);
 				filePaths.addAll(folderPathsCopy);
 			}
+			fileTable = (random == -1L ? fileTable : "\t\t<string>[<a href=\"" + fileLink + requestArgsNoSort + (requestArgsNoSort.isEmpty() ? "?" : "&") + "sort=random_" + random + "\" rel=\"nofollow\" title=\"(Permanent link to this randomly generated page)\">Permalink to random list</a>]</string><hr>\r\n" + fileTable);
 			for(Entry<Integer, String> entry : files.entrySet()) {
 				CodeUtil.sleep(10L);
 				if(s.isClosed()) {
@@ -3257,7 +3450,9 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								extraViewStr = nonBreakingSpaces + "<a href=\"" + curFileLink + "?displayFile=1\"" + linkTarget + "><b>*** Readable View ***</b></a>";
 							}
 						}
-						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + curInfo.fileName + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + mimeType + "</td>" + (enableMediaInfo && isMimeTypeMedia(curInfo.mimeType) ? "</td><td>" + nonBreakingSpaces + "</td><td><b><a href=\"" + curFileLink + "?mediaInfo=1\" title=\"(Opens in new tab/window)\" target=\"_blank\">Media Tags</a></b></td>" : "") + "</tr>\r\n";
+						RestrictedFile curRes = RestrictedFile.getSpecificRestrictedFile(file);
+						curRes = curRes == null ? RestrictedFile.getRestrictedFile(file) : curRes;
+						fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + curFileLink + (file.isDirectory() && !wasSortNull ? "?sort=" + (isSortReversed ? "-" : "") + sort : "") + "\"" + linkTarget + " name=\"" + curInfo.fileName + "\">" + curInfo.fileName + "</a>" + extraViewStr + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + mimeType + "</td>" + (enableMediaInfo && isMimeTypeMedia(curInfo.mimeType) ? "</td><td>" + nonBreakingSpaces + "</td><td><b><a href=\"" + curFileLink + "?mediaInfo=1\" title=\"(Opens in new tab/window)\" target=\"_blank\">Media Tags</a></b></td>" : "") + (canUsersModifyFiles ? "<td>" + nonBreakingSpaces + "</td><td>" + (curRes != null && curRes.canUsersModifyFiles() ? getManagementStrForFile(curFileLink, curInfo.fileName, curRes, false) : "(-)") + "</td></tr>\r\n" : "") + "</tr>\r\n";
 					}
 				} catch(FileNotFoundException ignored) {
 				} catch(Throwable e) {
@@ -3298,6 +3493,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					+ "\t\t<title>" + folderName + " - " + domainDirectory.getServerName() + "</title>\r\n"//
 					+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 					+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+					+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 					+ "\t</head>\r\n"//
 					+ "\t<body>\r\n"//
 					+ "\t\t" + bodyHeader + "\r\n" + fileTable + administrateForm + adminAnchor + "\r\n"//
@@ -3370,11 +3566,16 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 	 * @see #getManagementStrForFile(String, String)
 	 * @see #handleProxyRequest(Socket, InputStream, OutputStream,
 	 *      HTTPClientRequest, boolean) */
-	private static final boolean handleAdministrateFile(HTTPClientRequest request, File requestedFile, final String clientAddress, final String versionToUse, final String httpProtocol, OutputStream outStream, PrintWriter out, DomainDirectory domainDirectory, boolean keepAlive, String reqFileName, String pageHeader, ClientInfo clientInfo) {
+	private static final boolean handleAdministrateFile(HTTPClientRequest request, File requestedFile, final String clientAddress, final String versionToUse, final String httpProtocol, OutputStream outStream, PrintWriter out, DomainDirectory domainDirectory, boolean keepAlive, String reqFileName, String pageHeader, ClientInfo clientInfo, boolean administrateOrModify) {
 		if(request == null || requestedFile == null || !requestedFile.exists() || domainDirectory == null || out == null) {
 			return false;
 		}
+		final String flag = administrateOrModify ? "?administrateFile=1" : "?modifyFile=1";
+		
 		boolean send200OK = true;
+		
+		RestrictedFile res = RestrictedFile.getSpecificRestrictedFile(requestedFile);
+		res = res == null ? RestrictedFile.getRestrictedFile(requestedFile) : res;
 		
 		final String adminLink = enableAdminInterface ? (request.requestedFilePath.startsWith("https://") ? "https://" : "http://") + request.hostNoPort + ":" + admin_listen_port : null;
 		final String adminAnchor = (adminLink != null ? "<b><a href=\"" + adminLink + "\" target=\"_blank\" rel=\"nofollow\" title=\"Change server-wide settings\">Server Administration</a></b>" : "");
@@ -3435,8 +3636,17 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				}
 			} else {
 				authResult = authenticateBasicForServerAdministration(request, useCookieAuthentication);//final AuthorizationResult authResult = serverAdministrationAuth.authenticate(request.authorization, new String(request.postRequestData), request.protocol, request.host, clientIP, request.cookies);
-				final boolean passed = authResult.passed();
-				authCookie = authResult.authorizedCookie != null ? authResult.authorizedCookie : authCookie;
+				final boolean passed;
+				if(!administrateOrModify) {
+					if(res != null && res.canUsersModifyFiles()) {
+						passed = true;
+					} else {
+						passed = false;
+					}
+				} else {
+					passed = authResult.passed();
+					authCookie = authResult.authorizedCookie != null ? authResult.authorizedCookie : authCookie;
+				}
 				if(!passed) {//!areCredentialsValidForAdministration(clientUser, clientPass)) {
 					send200OK = false;
 					out.println(versionToUse + " 401 Authorization Required");
@@ -3499,11 +3709,16 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					String deleteCheck = request.requestArguments.get("deleteFile");
 					String moveCheck = request.requestArguments.get("moveFile");
 					String restrictCheck = request.requestArguments.get("restrictFile");
+					
+					String downloadCheck = request.requestArguments.get("download");
+					
 					final boolean renameFile = renameCheck != null ? renameCheck.equals("1") || renameCheck.equalsIgnoreCase("true") : false;
 					String renameTo = request.requestArguments.get("renameTo");
 					final boolean deleteFile = deleteCheck != null ? deleteCheck.equals("1") || deleteCheck.equalsIgnoreCase("true") : false;
 					final boolean moveFile = moveCheck != null ? moveCheck.equals("1") || moveCheck.equalsIgnoreCase("true") : false;
 					final boolean restrictFile = restrictCheck != null ? restrictCheck.equals("1") || restrictCheck.equalsIgnoreCase("true") : false;
+					
+					final boolean downloadFile = downloadCheck != null ? downloadCheck.equals("1") || downloadCheck.equalsIgnoreCase("true") : false;
 					
 					final String parentFileLink;
 					final File parentFile = requestedFile.getParentFile();
@@ -3520,7 +3735,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					String fileOrFolder = requestedFile.isFile() ? "file" : "folder";
 					
 					if(deleteFile) {
-						/*String deleteParamStr = (containsAnyArgs ? "&" : "?") + "administrateFile=1&deleteConfirm=";
+						/*String deleteParamStr = (containsAnyArgs ? "&" : "?") + flag + "=1&deleteConfirm=";
 						final String confirmButton = "<button title=\"Confirm deletion\" onclick=\"window.location.href=window.location.href.split('#')[0].split('?')[0] + '" + deleteParamStr + "1'\">Yes</button>";
 						final String cancelButton = "<button title=\"Cancel deletion\" onclick=\"window.location.href=window.location.href.split('#')[0].split('?')[0] + '" + deleteParamStr + "0'\">No</button>";
 						*/
@@ -3529,9 +3744,9 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 						final boolean exists = requestedFile.exists();
 						final String actionAnchors;
 						if(exists) {
-							actionAnchors = "<b><a href=\"" + fileLink + "?administrateFile=1&deleteFile=1\" rel=\"nofollow\" title=\"Try the delete operation again\">Retry</a>&nbsp;<a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + "?administrateFile=1\" rel=\"nofollow\" title=\"Cancel the delete operation\">Cancel</a></b>";
+							actionAnchors = "<b><a href=\"" + fileLink + flag + "&deleteFile=1\" rel=\"nofollow\" title=\"Try the delete operation again\">Retry</a>&nbsp;<a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + flag + "\" rel=\"nofollow\" title=\"Cancel the delete operation\">Cancel</a></b>";
 						} else {
-							actionAnchors = "<b><a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + "?administrateFile=1\" rel=\"nofollow\" title=\"Return to the administration page\">Done</a></b>";
+							actionAnchors = "<b><a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + (administrateOrModify ? flag + "\" rel=\"nofollow\" title=\"Return to the administration page\"" : "\" rel=\"nofollow\" title=\"Return to &quot;" + (parentFile != null ? parentFile.getName() : domainDirectory.getDirectory().getName()) + "&quot;\"") + ">Done</a></b>";
 						}
 						responseStr = "<!DOCTYPE html>\r\n"//
 								+ "<html>\r\n\t<head>\r\n"//
@@ -3550,7 +3765,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								+ "\t\t<string>" + (exists ? "Unable to delete the " + fileOrFolder + ". Please try again!(Is it a system file?)" : "Sucessfully deleted " + fileOrFolder + " &quot;" + reqFileName + "&quot;" + (parentFile != null ? " from parent folder &quot;" + parentFile.getName() + "&quot;" : "") + ".") + "</string><br>\r\n"//
 								+ "\t\t" + actionAnchors + "\r\n"//
 								/*+ "\t\t<string>Are you sure you wish to delete this folder?</string><br>\r\n"//
-								+ "\t\t" + confirmButton + "" + nonBreakingSpaces + "" + cancelButton + "\r\n"//*/
+								+ "\t\t" + confirmButton + nonBreakingSpaces + cancelButton + "\r\n"//*/
 								+ "\t</body>\r\n</html>";
 					} else if(renameFile) {
 						if(FilenameUtils.normalize(requestedFile.getAbsolutePath()).equals(homeDirPath)) {
@@ -3568,7 +3783,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									+ "\t\t" + pageHeader + "</h1>\r\n"//
 									+ logoutAnchor//
 									+ "\t\t<h2><font color=\"#770000\">You cannot rename the home directory of a domain, as this would break the domain.</font></h2><hr>\r\n"//
-									+ "\t\t<b><a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + "?administrateFile=1" + "\" rel=\"nofollow\" title=\"Cancel the rename operation\">Cancel</a></b>\r\n"//
+									+ "\t\t<b><a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + flag + "\" rel=\"nofollow\" title=\"Cancel the rename operation\">Cancel</a></b>\r\n"//
 									+ "\t</body>\r\n</html>";
 						} else {
 							if(renameTo != null) {
@@ -3586,7 +3801,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									if(keepAlive) {
 										out.println("Keep-Alive: timeout=30");
 									}
-									out.println("Location: " + fileLink + "?administrateFile=1&renameFile=1");//"Location: " + request.referrerLink);
+									out.println("Location: " + fileLink + flag + "&renameFile=1");//"Location: " + request.referrerLink);
 									out.println("");
 									out.flush();
 									connectedClients.remove(clientInfo);
@@ -3611,7 +3826,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									if(keepAlive) {
 										out.println("Keep-Alive: timeout=30");
 									}
-									out.println("Location: " + parentFileLink + "?administrateFile=1#" + renameTo);
+									out.println("Location: " + parentFileLink + (administrateOrModify ? flag : "") + "#" + renameTo);
 									out.println("");
 									out.flush();
 									connectedClients.remove(clientInfo);
@@ -3632,7 +3847,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 										+ logoutAnchor//
 										+ "\t\t<string>Unable to rename " + fileOrFolder + " &quot;" + reqFileName + "&quot; to &quot;" + encodedRenameTo + "&quot;" + (alreadyExists ? ": Destination file/folder already exists. Please choose another name." : ". Is the " + fileOrFolder + " a system " + fileOrFolder + "?") + "</string>\r\n"//
 										+ "\t\t<hr>\r\n"//
-										+ "\t\t<b><a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + "?administrateFile=1\" rel=\"nofollow\" title=\"Cancel the rename operation\">Cancel</a>&nbsp;<a href=\"" + fileLink + "?administrateFile=1&renameFile=1\" rel=\"nofollow\" title=\"Try again with a different name\">Choose a different name</a>&nbsp;<a href=\"" + fileLink + "?administrateFile=1&renameFile=1&renameTo=" + encodedRenameTo + "\" rel=\"nofollow\" title=\"Try again with the same name\">Retry</a></b>\r\n"//
+										+ "\t\t<b><a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + flag + "\" rel=\"nofollow\" title=\"Cancel the rename operation\">Cancel</a>&nbsp;<a href=\"" + fileLink + flag + "&renameFile=1\" rel=\"nofollow\" title=\"Try again with a different name\">Choose a different name</a>&nbsp;<a href=\"" + fileLink + flag + "&renameFile=1&renameTo=" + encodedRenameTo + "\" rel=\"nofollow\" title=\"Try again with the same name\">Retry</a></b>\r\n"//
 										+ "\t</body>\r\n</html>";
 							} else {
 								responseStr = "<!DOCTYPE html>\r\n"//
@@ -3651,19 +3866,19 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 										+ "\t\t<h2><font color=\"#777700\">Rename " + fileOrFolder + " &quot;" + reqFileName + "&quot;</font></h2><hr>\r\n"//
 										+ "\t\t<string>Enter the new name for the " + fileOrFolder + " &quot;" + reqFileName + "&quot; and click rename:</string>\r\n"//
 										+ "\t\t<form action=\"" + request.requestedFilePath + "\" method=\"get\" enctype=\"application/x-www-form-urlencoded\">"//
-										+ "\t\t\t<input type=\"hidden\" name=\"administrateFile\" value=\"1\">\r\n"//
+										+ "\t\t\t<input type=\"hidden\" name=\"" + flag + "\" value=\"1\">\r\n"//
 										+ "\t\t\t<input type=\"hidden\" name=\"renameFile\" value=\"1\">\r\n"//
 										+ "\t\t\t<input type=\"text\" name=\"renameTo\" value=\"" + reqFileName + "\" size=\"42\" title=\"The new name for this " + fileOrFolder + "\"><br>\r\n"//
 										+ "\t\t\t<input type=\"submit\" value=\"Rename\" title=\"Rename this file\">\r\n"//
 										+ "\t\t</form><br>\r\n"//
-										+ "\t\t<b><a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + "?administrateFile=1" + "\" rel=\"nofollow\" title=\"Cancel the rename operation\">Cancel</a></b>\r\n"//
+										+ "\t\t<b><a href=\"" + (parentFileLink != null ? parentFileLink : fileLink) + flag + "\" rel=\"nofollow\" title=\"Cancel the rename operation\">Cancel</a></b>\r\n"//
 										+ "\t</body>\r\n</html>";
 							}
 						}
 					} else if(moveFile || restrictFile) {
 						//TODO Implement me!
 						responseStr = "<!DOCTYPE html><html><head><link rel=\"shortcut icon\" href=\"" + domainDirectory.getDefaultPageIcon() + "\" type=\"image/x-icon\"><title>You hax. - " + domainDirectory.getServerName() + "</title><style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>" + (domainDirectory.doesDefaultStyleSheetExist() ? "<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">" : "") + "</head><body><string>You typed that url didn't you.</string></body></html>";
-					} else {
+					} else {//XXX administrateFile=1 -- Folders
 						if(requestedFile.isDirectory()) {
 							String fileTable = "";
 							String[] c = requestedFile.list();
@@ -3671,7 +3886,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 							if(c != null) {
 								int j = 0;
 								for(int i = 0; i < c.length; i++) {
-									CodeUtil.sleep(10L);
+									CodeUtil.sleep(8L);
 									boolean doIt = true;
 									String fileName = c[i];
 									File file = new File(requestedFile, fileName);
@@ -3693,7 +3908,6 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 							fileTable += "\t\t<table border=\"2\" cellpadding=\"3\" cellspacing=\"1\">\r\n";
 							fileTable += "\t\t\t<tbody>\r\n";
 							fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td><b>#</b></td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><b>File Name</b></td><td>" + nonBreakingSpaces + "</td><td><b>Size</b></td><td>" + nonBreakingSpaces + "</td><td><b>Date</b></td><td>" + nonBreakingSpaces + "</td><td><b>Type</b></td><td>" + nonBreakingSpaces + "</td><td><b>(Management)</b></td></tr>\r\n";
-							
 							ArrayList<Integer> folderPaths = new ArrayList<>();
 							ArrayList<Integer> filePaths = new ArrayList<>();
 							if(domainDirectory.getListDirectoriesFirst()) {
@@ -3723,7 +3937,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								}
 							}
 							if(parentFileLink != null) {
-								fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>(-)</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + parentFileLink + "?administrateFile=1\"><b>../(Up)</b></a></td><td>" + nonBreakingSpaces + "</td><td>" + info.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + info.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + info.mimeType + (RestrictedFile.isFileForbidden(parentFile) ? "\t\t(Forbidden)" : "") + "</td><td>" + nonBreakingSpaces + "</td><td>(-)</td></tr>\r\n";
+								fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>(-)</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td><a href=\"" + parentFileLink + flag + "\"><b>../(Up)</b></a></td><td>" + nonBreakingSpaces + "</td><td>" + info.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + info.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + info.mimeType + (RestrictedFile.isFileForbidden(parentFile) ? "\t\t(Forbidden)" : "") + "</td><td>" + nonBreakingSpaces + "</td><td>(-)</td></tr>\r\n";
 							}
 							for(Entry<Integer, String> entry : files.entrySet()) {
 								CodeUtil.sleep(10L);
@@ -3749,6 +3963,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								if(FileUtil.isFileAccessible(file)) {
 									final boolean isDefaultFileForDomain = FilenameUtils.normalize(file.getAbsolutePath()).equalsIgnoreCase(defaultFilePath);
 									RestrictedFile curRes = RestrictedFile.getSpecificRestrictedFile(file);
+									curRes = curRes == null ? RestrictedFile.getRestrictedFile(file) : curRes;
 									final boolean isHidden = curRes == null ? false : curRes.isHidden.getValue().booleanValue();
 									String newPath = path + "/" + fileName;
 									if(newPath.startsWith("//")) {
@@ -3757,17 +3972,17 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									String unAliasedPath = (newPath.startsWith("/") ? "" : "/") + newPath;
 									final String curFileLink = StringUtils.encodeHTML(httpProtocol + request.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
 									
-									String managementStr = getManagementStrForFile(curFileLink, fileName);
+									String managementStr = curRes != null ? getManagementStrForFile(curFileLink, fileName, curRes, administrateOrModify) : "";
 									FileInfo curInfo = new FileInfo(file, domainDirectory);
 									String mimeType = curInfo.mimeType + (RestrictedFile.isFileForbidden(file) ? "\t\t(Forbidden)" : "");
 									String name = "<string" + (isDefaultFileForDomain ? " title=\"Default landing page for domain &quot;" + domainDirectory.getDomain() + "&quot;\"" : "") + ">" + fileName + (isHidden ? "&nbsp;<b><i>{Hidden " + (file.isFile() ? "File" : "Folder") + "}</i></b>" : "") + "</string>";
 									name = isDefaultFileForDomain ? "<b>" + name + "</b>" : name;
 									if(file.isDirectory()) {
-										name = "<a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + fileName + "\">" + name + "</a>";
+										name = "<a href=\"" + curFileLink + flag + "\" rel=\"nofollow\" name=\"" + fileName + "\">" + name + "</a>";
 									} else {
-										name = "<i><a href=\"" + curFileLink + "?administrateFile=1\" rel=\"nofollow\" name=\"" + fileName + "\">" + name + "</a></i>";
+										name = "<i><a href=\"" + curFileLink + flag + "\" rel=\"nofollow\" name=\"" + fileName + "\">" + name + "</a></i>";
 									}
-									fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td>" + name + "</td><td>" + (file.isDirectory() ? nonBreakingSpaces : "<a href=\"" + curFileLink + "\" download=\"" + fileName + "\" target=\"_blank\" rel=\"nofollow\">Download</a>") + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + mimeType + "</td><td>" + nonBreakingSpaces + "</td><td>" + managementStr + "</td></tr>\r\n";
+									fileTable += "\t\t\t\t<tr>" + (domainDirectory.getNumberDirectoryEntries() ? "<td>" + (i.intValue() + 1) + "</td><td>" + nonBreakingSpaces + "</td>" : "") + "<td>" + name + "</td><td>" + (file.isDirectory() ? nonBreakingSpaces : "<a href=\"" + curFileLink + flag + "&download=1\" download=\"" + fileName + "\" target=\"_blank\" rel=\"nofollow\">Download</a>") + "</td><td>" + curInfo.contentLength + "</td><td>" + nonBreakingSpaces + "</td><td>" + curInfo.lastModified + "</td><td>" + nonBreakingSpaces + "</td><td>" + mimeType + "</td><td>" + nonBreakingSpaces + "</td><td>" + managementStr + "</td></tr>\r\n";
 								}
 							}
 							fileTable += "\t\t\t</tbody>\r\n";
@@ -3792,6 +4007,12 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									+ "\t\t<b><a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a></b>" + (adminAnchor.isEmpty() ? "" : "&nbsp;" + adminAnchor) + "\r\n"//
 									+ "\t</body>\r\n</html>";
 						} else if(requestedFile.isFile()) {
+							if(downloadFile) {
+								out.println("HTTP/1.1 200 OK");
+								sendFileToClient(out, outStream, requestedFile, request.method, clientAddress, 4096, false, clientInfo);
+								connectedClients.remove(clientInfo);
+								return true;
+							}
 							responseStr = "<!DOCTYPE html>\r\n"//
 									+ "<html>\r\n\t<head>\r\n"//
 									+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
@@ -3806,7 +4027,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									+ "\t\t" + pageHeader + "</h1>\r\n"//
 									+ logoutAnchor//
 									+ "\t\t<string>File administration pages are not yet implemented. Try again in a later release! :)</string>\r\n"//
-									+ "\t\t<hr><b>" + (parentFileLink != null ? "<a href=\"" + parentFileLink + "?administrateFile=1\" rel=\"nofollow\">(../Up)</a>&nbsp;" : "") + "<a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a>" + (adminAnchor.isEmpty() ? "" : "&nbsp;" + adminAnchor) + "</b><br>"//
+									+ "\t\t<hr><b>" + (parentFileLink != null ? "<a href=\"" + parentFileLink + flag + "\" rel=\"nofollow\">(../Up)</a>&nbsp;" : "") + "<a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a>" + (adminAnchor.isEmpty() ? "" : "&nbsp;" + adminAnchor) + "</b><br>"//
 									+ (!request.referrerLink.isEmpty() ? "\t\t<a href=\"" + request.referrerLink + "\" rel=\"nofollow\">Back to previous page</a>\r\n" : "")//
 									+ "\t</body>\r\n</html>";
 						} else {
@@ -3824,7 +4045,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									+ "\t\t" + pageHeader + "</h1>\r\n"//
 									+ logoutAnchor//
 									+ "\t\t<string>The server can't figure out if the object referenced in the request url is a file or folder! That shouldn't happen!!1</string>\r\n"//
-									+ "\t\t<hr><b>" + (parentFileLink != null ? "<a href=\"" + parentFileLink + "?administrateFile=1\" rel=\"nofollow\">(../Up)</a>&nbsp;" : "") + "<a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a>" + (adminAnchor.isEmpty() ? "" : "&nbsp;" + adminAnchor) + "</b><br>"//
+									+ "\t\t<hr><b>" + (parentFileLink != null ? "<a href=\"" + parentFileLink + flag + "\" rel=\"nofollow\">(../Up)</a>&nbsp;" : "") + "<a href=\"" + fileLink + "\" title=\"View the normal version of this page without administration tools\">Normal view</a>" + (adminAnchor.isEmpty() ? "" : "&nbsp;" + adminAnchor) + "</b><br>"//
 									+ (!request.referrerLink.isEmpty() ? "\t\t<a href=\"" + request.referrerLink + "\" rel=\"nofollow\">Back to previous page</a>\r\n" : "")//
 									+ "\t</body>\r\n</html>";
 						}
@@ -3894,11 +4115,14 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 	 * @see #handleAdministrateFile(HTTPClientRequest, File, String, String,
 	 *      String, OutputStream, PrintWriter, DomainDirectory, boolean, String,
 	 *      String, ClientInfo) */
-	private static final String getManagementStrForFile(String fileLink, String fileName) {//XXX Folder/File Administration Management Links
-		return "<a href=\"" + fileLink + "?administrateFile=1&renameFile=1\" rel=\"nofollow\" title=\"Rename this file\">Rename</a>"//
-				+ "&nbsp;<a href=\"" + fileLink + "?administrateFile=1&deleteFile=1\" rel=\"nofollow\" title=\"Delete this file\" onclick=\"return confirm('Are you sure you want to delete the file &quot;" + StringUtils.makeFilePathURLSafe(fileName) + "&quot;? This cannot be undone.');\">Delete</a>"//
+	private static final String getManagementStrForFile(String fileLink, String fileName, RestrictedFile res, boolean administrateOrModify) {//XXX Folder/File Administration Management Links
+		String flag = administrateOrModify ? "administrateFile" : "modifyFile";
+		return res.canModifyFiles.getValue().booleanValue() ? "<a href=\"" + fileLink + "?" + flag + "=1&renameFile=1\" rel=\"nofollow\" title=\"Rename this file\">Rename</a>"//
+				+ "&nbsp;<b><u><i><string title=\"This feature is not implemented yet.\">Copy</string></u>"//
+				+ "&nbsp;<a href=\"" + fileLink + "?" + flag + "=1&deleteFile=1\" rel=\"nofollow\" title=\"Delete this file\" onclick=\"return confirm('Are you sure you want to delete the file &quot;" + StringUtils.makeFilePathURLSafe(fileName) + "&quot;? This cannot be undone.');\">Delete</a>"//
 				+ "&nbsp;<b><u><i><string title=\"This feature is not implemented yet.\">Move</string></u>"//
-				+ "&nbsp;<u><string title=\"This feature is not implemented yet.\">Restrict</string></i></u></b>";//
+				+ (administrateOrModify ? "&nbsp;<u><string title=\"This feature is not implemented yet.\">Restrict</string></i></u></b>" : "")//
+		: "";//
 	}
 	
 	/** Parses the client's incoming administration request, then returns the
@@ -3931,12 +4155,13 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		}
 		final String clientAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
 		//final String clientIP = AddressUtil.getClientAddressNoPort(clientAddress);//clientAddress == null ? null : clientAddress.substring(0, clientAddress.contains(":") ? clientAddress.lastIndexOf(":") - 1 : clientAddress.length());
-		if(isIpBanned(clientAddress, !reuse.reuse)) {
+		BanCheckResult banCheck = isIpBanned(clientAddress, !reuse.reuse);
+		if(banCheck.isBanned()) {
 			try {
 				s.close();
 			} catch(IOException ignored) {
 			}
-			NaughtyClientData naughty = getBannedClient(clientAddress);
+			NaughtyClientData naughty = banCheck.getData();
 			println("Kicked client with ip: " + clientAddress + "\r\n\tReason: " + (naughty != null ? "\"" + naughty.banReason + "\"" : "Unknown"));
 			return new RequestResult(null, ReusedConn.FALSE, null);
 		}
@@ -3954,7 +4179,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			try {
 				request.acceptClientRequest(requestTimeout, reuse.reuse);//request = HTTPClientRequest.getClientRequest(s, in, requestTimeout, false);//new HTTPClientRequest(s, in);
 			} catch(NumberFormatException e) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No Content-Length Header defined.").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("No Content-Length Header defined.").setResponse((String) null).sendToClient(s, false);
 				try {
 					in.close();
 				} catch(Throwable ignored) {
@@ -3963,7 +4188,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				s.close();
 				return new RequestResult(request, ReusedConn.FALSE, null);
 			} catch(UnsupportedEncodingException e) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Unsupported Url Encoding").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("Unsupported Url Encoding").setResponse((String) null).sendToClient(s, false);
 				try {
 					in.close();
 				} catch(Throwable ignored) {
@@ -3972,7 +4197,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				s.close();
 				return new RequestResult(request, ReusedConn.FALSE, null);
 			} catch(OutOfMemoryError e) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_413, false, StandardCharsets.UTF_8).setStatusMessage("Request data too large").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_413, false, StandardCharsets.UTF_8, request).setStatusMessage("Request data too large").setResponse((String) null).sendToClient(s, false);
 				try {
 					in.close();
 				} catch(Throwable ignored) {
@@ -3981,7 +4206,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				s.close();
 				return new RequestResult(request, ReusedConn.FALSE, null);
 			} catch(CancellationException e) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_204, false, StandardCharsets.UTF_8).setStatusMessage(e.getMessage()).setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_204, false, StandardCharsets.UTF_8, request).setStatusMessage(e.getMessage()).setResponse((String) null).sendToClient(s, false);
 				try {
 					in.close();
 				} catch(Throwable ignored) {
@@ -3990,7 +4215,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				s.close();
 				return new RequestResult(request, ReusedConn.FALSE, null);
 			} catch(TimeoutException e) {
-				ResponseUtil.send408Response(s, clientAddress);
+				ResponseUtil.send408Response(s, clientAddress, request);
 				try {
 					in.close();
 				} catch(Throwable ignored) {
@@ -4006,12 +4231,12 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			boolean hostDefined = !originalHost.isEmpty();
 			request.host = AddressUtil.getValidHostFor(originalHost);
 			if(!hostDefined && request.version.equalsIgnoreCase("HTTP/1.1")) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No host header defined: \"" + originalHost + "\"").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("No host header defined: \"" + originalHost + "\"").setResponse((String) null).sendToClient(s, false);
 				request.cancel();
 				return new RequestResult(request, ReusedConn.FALSE, null);
 			}
 			if(request.method.isEmpty()) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Bad protocol request: \"" + request.protocolRequest + "\"").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("Bad protocol request: \"" + request.protocolRequest + "\"").setResponse((String) null).sendToClient(s, false);
 				if(!HTTPClientRequest.debug) {
 					PrintUtil.clearLogs();
 				}
@@ -4027,7 +4252,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				reuse.reuse = false;
 			}
 			s.setKeepAlive(reuse.reuse);
-			HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
+			HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8, request).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
 			
 			if(request.method.equalsIgnoreCase("brew")) {
 				if(request.version.toUpperCase().startsWith("HTCPCP/")) {
@@ -4046,7 +4271,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			
 			if(!request.protocolRequest.isEmpty()) {
 				if(request.method.isEmpty()) {
-					new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Bad protocolRequest: \"" + request.protocolRequest + "\"").setResponse((String) null).sendToClient(s, false);
+					new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("Bad protocolRequest: \"" + request.protocolRequest + "\"").setResponse((String) null).sendToClient(s, false);
 					return new RequestResult(request, ReusedConn.FALSE, null);
 				}
 				//final HttpDigestAuthorization serverAdministrationAuth = getOrCreateAuthForCurrentThread();
@@ -4447,6 +4672,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									response.appendResponse("\t\t\t\t\t<tr><td><b>FilePath:</b></td><td><input type=\"text\" name=\"FilePath\" value=\"" + res.getRestrictedFile().getAbsolutePath() + "\" size=\"50\"></td><td></td><td></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>AuthRealm:</b></td><td><input type=\"text\" name=\"AuthRealm\" value=\"" + res.getAuthorizationRealm() + "\" size=\"25\"></td><td></td><td></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>IsHidden:</b></td><td><select name=\"" + res.isHidden.getName() + "\" title=\"" + res.isHidden.getDescription() + "\">" + (res.isHidden.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
+									response.appendResponse("\t\t\t\t\t<tr><td><b>UsersCanModifyFiles:</b></td><td><select name=\"" + res.canModifyFiles.getName() + "\" title=\"" + res.canModifyFiles.getDescription() + "\">" + (res.canModifyFiles.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									int iPsMax = res.getAllowedIPAddresses().size() > 20 ? res.getAllowedIPAddresses().size() : 20;
 									for(int i = 0; i < iPsMax; i++) {
 										String value = (i < res.getAllowedIPAddresses().size() ? res.getAllowedIPAddresses().get(i) : "");
@@ -4510,6 +4736,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DefaultFontFace:</b></td><td><input type=\"text\" name=\"" + domain.defaultFontFace.getName() + "\" value=\"" + domain.defaultFontFace.getValue() + "\" size=\"42\"></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DefaultPageIcon:</b></td><td><input type=\"text\" name=\"" + domain.defaultPageIcon.getName() + "\" value=\"" + domain.defaultPageIcon.getValue() + "\" size=\"42\"></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DefaultStylesheet:</b></td><td><input type=\"text\" name=\"" + domain.defaultStylesheet.getName() + "\" value=\"" + domain.defaultStylesheet.getValue() + "\" size=\"42\"></tr>\r\n");
+									response.appendResponse("\t\t\t\t\t<tr><td><b>PageHeaderContent:</b></td><td><textarea name=\"" + domain.pageHeaderContent.getName() + "\" title=\"" + domain.pageHeaderContent.getDescription() + "\">" + domain.pageHeaderContent.getValue() + "</textarea></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DisplayName:</b></td><td><input type=\"text\" name=\"" + domain.displayName.getName() + "\" value=\"" + domainName + "\" size=\"42\" title=\"The display name for this domain(used when viewing domains in the administration interface)\"></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DisplayLogEntries:</b></td><td><select name=\"" + domain.displayLogEntries.getName() + "\">" + (domain.displayLogEntries.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>HomeDirectory:</b></td><td>" + homeDirPrefix + "<input type=\"text\" name=\"" + domain.folder.getName() + "\" value=\"" + (noHomeDir ? homeDirectoryError : domain.folder.getValue().getAbsolutePath()) + "\" size=\"42\">" + homeDirSuffix + "</td></tr>\r\n");
@@ -4899,6 +5126,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									//
 									response.appendResponse("\t\t\t\t\t<tr><td><b>AuthRealm:</b></td><td><input type=\"text\" name=\"AuthRealm\" value=\"" + res.getAuthorizationRealm() + "\" size=\"25\"></td><td></td><td></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>IsHidden:</b></td><td><select name=\"" + res.isHidden.getName() + "\" title=\"" + res.isHidden.getDescription() + "\">" + (res.isHidden.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
+									response.appendResponse("\t\t\t\t\t<tr><td><b>UsersCanModifyFiles:</b></td><td><select name=\"" + res.canModifyFiles.getName() + "\" title=\"" + res.canModifyFiles.getDescription() + "\">" + (res.canModifyFiles.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									int iPsMax = res.getAllowedIPAddresses().size() > 20 ? res.getAllowedIPAddresses().size() : 20;
 									for(int i = 0; i < iPsMax; i++) {
 										String value = (i < res.getAllowedIPAddresses().size() ? res.getAllowedIPAddresses().get(i) : "");
@@ -4906,16 +5134,16 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									}
 									int authMax = res.getAuthorizationCredentials().size() > 20 ? res.getAuthorizationCredentials().size() : 20;
 									int i = 0;
-									ArrayList<Entry<String, String>> entrySet = new ArrayList<>(res.getAuthorizationCredentials().entrySet());
-									if(entrySet.isEmpty()) {
-										entrySet = new ArrayList<>();
+									ArrayList<Credential> creds = new ArrayList<>(res.getAuthorizationCredentials());
+									if(creds.isEmpty()) {
+										creds = new ArrayList<>();
 										for(int index = 0; index < authMax; index++) {
-											entrySet.add(CodeUtil.createBlankEntry("", ""));
+											creds.add(new Credential());
 										}
 									}
-									for(Entry<String, String> entry : entrySet) {
-										String username = entry.getKey();
-										String password = entry.getValue();
+									for(Credential cred : creds) {
+										String username = cred.getUsername();
+										String password = cred.getPassword();
 										response.appendResponse("\t\t\t\t\t<tr><td><b>AuthUsername_" + (i + 1) + ":</b></td><td><input type=\"text\" name=\"AuthUsername_" + i + "\" value=\"" + username + "\" size=\"25\"></td><td><b>AuthPassword_" + (i + 1) + ":</b></td><td><input type=\"password\" name=\"AuthPassword_" + i + "\" value=\"" + password + "\" size=\"25\"></td></tr>\r\n");
 										i++;
 										if(i == res.getAuthorizationCredentials().size() && i < authMax) {
@@ -4971,6 +5199,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DefaultFontFace:</b></td><td><input type=\"text\" name=\"" + domain.defaultFontFace.getName() + "\" value=\"" + domain.defaultFontFace.getValue() + "\" size=\"42\"></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DefaultPageIcon:</b></td><td><input type=\"text\" name=\"" + domain.defaultPageIcon.getName() + "\" value=\"" + domain.defaultPageIcon.getValue() + "\" size=\"42\"></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DefaultStylesheet:</b></td><td><input type=\"text\" name=\"" + domain.defaultStylesheet.getName() + "\" value=\"" + domain.defaultStylesheet.getValue() + "\" size=\"42\"></tr>\r\n");
+									response.appendResponse("\t\t\t\t\t<tr><td><b>PageHeaderContent:</b></td><td><textarea name=\"" + domain.pageHeaderContent.getName() + "\" title=\"" + domain.pageHeaderContent.getDescription() + "\">" + domain.pageHeaderContent.getValue() + "</textarea></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DisplayName:</b></td><td><input type=\"text\" name=\"" + domain.displayName.getName() + "\" value=\"" + domain.displayName.getValue() + "\" size=\"42\"></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>DisplayLogEntries:</b></td><td><select name=\"" + domain.displayLogEntries.getName() + "\" title=\"" + domain.displayLogEntries.getDescription() + "\">" + (domain.displayLogEntries.getValue().booleanValue() ? booleanOptionOn : booleanOptionOff) + "</select></td></tr>\r\n");
 									response.appendResponse("\t\t\t\t\t<tr><td><b>HomeDirectory:</b></td><td><input type=\"text\" name=\"" + domain.folder.getName() + "\" value=\"" + domain.folder.getValue().getAbsolutePath() + "\" size=\"42\"></td></tr>\r\n");
@@ -5491,7 +5720,11 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		if(!enableProxyServer) {
 			throw new IllegalStateException("Method \"handleProxyRequest\" called when proxy server is disabled!");
 		}
-		request.getStatus().removeFromList();
+		if(request.isCompleted()) {
+			throw new IllegalArgumentException("'request' has already been completed(marked for garbage collection)!");
+		}
+		final ClientRequestStatus status = request.getStatus();
+		status.removeFromList();
 		if(client == null || client.isClosed() || client.isInputShutdown() || client.isOutputShutdown()) {
 			throw new SocketException("Socket is closed.");
 		}
@@ -5563,29 +5796,30 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			}
 			return serverAddress;
 		}
-		request.getStatus().setProxyRequest(true);
-		request.getStatus().addToList(connectedProxyRequests);
+		status.setProxyRequest(true);
+		status.addToList(connectedProxyRequests);
 		DomainDirectory check = DomainDirectory.getDomainDirectoryFromDomainName(serverAddress);
 		if(check != null) {
+			request.domainDirectory = request.domainDirectory == null ? check : request.domainDirectory;
 			if(!check.getDisplayLogEntries()) {
 				PrintUtil.clearLogsBeforeDisplay();
 				PrintUtil.clearErrLogsBeforeDisplay();
 			}
 		}
 		println("[PROXY] Server address: " + serverAddress + "; Port: " + serverPort);
-		request.getStatus().setStatus("[PROXY] Attempting to connect to server \"" + serverAddress + ":" + serverPort + "\"...");
+		status.setStatus("[PROXY] Attempting to connect to server \"" + serverAddress + ":" + serverPort + "\"...");
 		final SocketConnectResult result = new SocketConnectResult(serverAddress, serverPort);
 		final Socket server = result.s;
 		
 		if(!result.failedToConnect) {
 			if(connect || serverPort == 443) {
-				request.getStatus().setStatus("[PROXY] Connection to server \"" + serverAddress + ":" + serverPort + "\" was successful.");
+				status.setStatus("[PROXY] Connection to server \"" + serverAddress + ":" + serverPort + "\" was successful.");
 				PrintStream co = new PrintStream(clientOut);
 				co.println(request.version + " " + HTTP_200_1);
 				co.println("");
 				println("[PROXY] " + request.version + " " + HTTP_200_1);
 			} else {
-				request.getStatus().setStatus("[PROXY] Connection to server \"" + serverAddress + ":" + serverPort + "\" was successful. Relaying client's request to server...");
+				status.setStatus("[PROXY] Connection to server \"" + serverAddress + ":" + serverPort + "\" was successful. Relaying client's request to server...");
 				println("[PROXY] Relaying client request headers to requested server...");
 				PrintStream so = new PrintStream(result.out);
 				so.println(request.version.toUpperCase().startsWith("HTTP/2.") ? request.protocolRequest : (request.method + " " + (request.requestedFilePath.trim().isEmpty() ? "/" : request.requestedFilePath) + " " + request.version));
@@ -5601,8 +5835,8 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 						so.println("Via: " + serverVia);
 					}
 				}
-				request.getStatus().setContentLength(request.headers.keySet().size());
-				request.getStatus().setCount(0);
+				status.setContentLength(request.headers.keySet().size());
+				status.setCount(0);
 				for(Entry<String, String> entry : request.headers.entrySet()) {
 					if(entry.getKey() != null) {
 						if(!sendProxyHeadersWithRequest) {
@@ -5615,16 +5849,16 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 						}
 						so.println(entry.getKey() + ": " + entry.getValue());
 					}
-					request.getStatus().incrementCount();
+					status.incrementCount();
 				}
 				so.println("");
 				if(request.postRequestData.length > 0) {
 					println("[PROXY] Relaying client's POST request data to requested server...");
-					request.getStatus().setContentLength(request.postRequestData.length);
-					request.getStatus().setCount(0);
+					status.setContentLength(request.postRequestData.length);
+					status.setCount(0);
 					for(int i = 0; i < request.postRequestData.length; i++) {
 						so.write(request.postRequestData[i]);
-						request.getStatus().incrementCount();
+						status.incrementCount();
 					}
 				}
 				println("[PROXY] Client request sent to requested server successfully.");
@@ -5660,7 +5894,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								result.out.write(buf, 0, clientRead);
 								serverWriteInProgress.setValue(Boolean.FALSE);
 								clientLastReadTime.setValue(Long.valueOf(System.currentTimeMillis()));
-								request.getStatus().addNumOfBytesSentToServer(clientRead);
+								status.addNumOfBytesSentToServer(clientRead);
 								clientReadInProgress.setValue(Boolean.TRUE);
 							}
 							clientReadInProgress.setValue(Boolean.FALSE);
@@ -5694,7 +5928,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								clientOut.write(buf, 0, serverRead);
 								clientWriteInProgress.setValue(Boolean.FALSE);
 								serverLastReadTime.setValue(Long.valueOf(System.currentTimeMillis()));
-								request.getStatus().addNumOfBytesSentToClient(serverRead);
+								status.addNumOfBytesSentToClient(serverRead);
 								serverReadInProgress.setValue(Boolean.TRUE);
 							}
 							serverReadInProgress.setValue(Boolean.FALSE);
@@ -5722,7 +5956,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				if(serverException.getValue() != null) {
 					throw serverException.getValue();
 				}
-				request.getStatus().setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Client MTU: " + clientMTU + "; Server MTU: " + serverMTU + "; Data: Client --> Server: " + Functions.humanReadableByteCount(request.getStatus().getNumOfBytesSentToServer(), true, 2) + "; Server --> Client: " + Functions.humanReadableByteCount(request.getStatus().getNumOfBytesSentToClient(), true, 2));
+				status.setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Client MTU: " + clientMTU + "; Server MTU: " + serverMTU + "; Data: Client --> Server: " + Functions.humanReadableByteCount(status.getNumOfBytesSentToServer(), true, 2) + "; Server --> Client: " + Functions.humanReadableByteCount(status.getNumOfBytesSentToClient(), true, 2));
 				long timeElapsedSinceLastClientRead = System.currentTimeMillis() - clientLastReadTime.getValue().longValue();
 				long timeElapsedSinceLastServerRead = System.currentTimeMillis() - serverLastReadTime.getValue().longValue();
 				final boolean clientTimedOut = timeElapsedSinceLastClientRead >= 30000;
@@ -5753,7 +5987,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				CodeUtil.sleep(200L);
 			}
 		} else {
-			request.getStatus().setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Unable to connect to server: " + result.failReason);
+			status.setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Unable to connect to server: " + result.failReason);
 			final HTTPStatusCodes code = result.failReason.toLowerCase().contains("timed out") ? HTTP_504 : HTTP_502;
 			PrintUtil.printlnNow("[PROXY] " + request.version + " " + code);
 			PrintStream co = new PrintStream(clientOut);
@@ -5791,7 +6025,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				co.println(response);
 			}
 		}
-		request.getStatus().setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Closing down connections...");
+		status.setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; Closing down connections...");
 		try {
 			client.close();
 		} catch(Throwable ignored) {
@@ -5800,9 +6034,9 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			server.close();
 		} catch(Throwable ignored) {
 		}
-		request.getStatus().setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; All done!");
+		status.setStatus("[PROXY] Server: \"" + serverAddress + ":" + serverPort + "\"; All done!");
 		try {
-			request.getStatus().removeFromList();
+			status.removeFromList();
 		} catch(Throwable ignored) {
 		}
 		return serverAddress;
@@ -5835,12 +6069,13 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 		ClientInfo clientInfo = null;
 		DomainDirectory domainDirectory = null;
 		String getClientAddress = AddressUtil.getClientAddress((s.getRemoteSocketAddress() != null) ? StringUtils.replaceOnce(s.getRemoteSocketAddress().toString(), "/", "") : "");
-		if(isIpBanned(getClientAddress, true)) {
+		BanCheckResult banResult = isIpBanned(getClientAddress, true);
+		if(banResult.isBanned()) {
 			try {
 				s.close();
 			} catch(IOException ignored) {
 			}
-			NaughtyClientData naughty = getBannedClient(getClientAddress);
+			NaughtyClientData naughty = banResult.getData();
 			println("Kicked client with ip: " + getClientAddress + "\r\n\tReason: " + (naughty != null ? "\"" + naughty.banReason + "\"" : "Unknown(no ban data found!)"));
 			return new RequestResult(null, ReusedConn.FALSE, null);
 		}
@@ -5866,42 +6101,51 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			try {
 				request.acceptClientRequest(requestTimeout, reuse.reuse);//request = HTTPClientRequest.getClientRequest(s, in, requestTimeout, reuse);//new HTTPClientRequest(s, in);
 			} catch(NumberFormatException e) {
-				request.markCompleted();
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No Content-Length Header defined.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 400: No \"Content-Length:\" header defined.").sendToClient(s, true);
+				request.markCompleted(Functions.throwableToStr(e));
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("No Content-Length Header defined.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 400: No \"Content-Length:\" header defined.").sendToClient(s, true);
 				return new RequestResult(null, reuse, null);
 			} catch(UnsupportedEncodingException e) {
-				request.markCompleted();
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Unsupported Url Encoding").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
+				request.markCompleted(Functions.throwableToStr(e));
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("Unsupported Url Encoding").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
 				return new RequestResult(null, reuse, null);
 			} catch(OutOfMemoryError e) {
-				request.markCompleted();
-				new HTTPServerResponse("HTTP/1.1", HTTP_413, false, StandardCharsets.UTF_8).setStatusMessage("Request data too large").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
+				request.markCompleted(Functions.throwableToStr(e));
+				new HTTPServerResponse("HTTP/1.1", HTTP_413, false, StandardCharsets.UTF_8, request).setStatusMessage("Request data too large").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setResponse((String) null).sendToClient(s, false);
 				System.gc();
 				return new RequestResult(null, reuse, null);
 			} catch(CancellationException e) {
-				request.markCompleted();
-				new HTTPServerResponse("HTTP/1.1", HTTP_204, false, StandardCharsets.UTF_8).setStatusMessage(e.getMessage()).setHeader("Connection", "close").setResponse((String) null).sendToClient(s, false);
+				request.markCompleted(Functions.throwableToStr(e));
+				new HTTPServerResponse("HTTP/1.1", HTTP_204, false, StandardCharsets.UTF_8, request).setStatusMessage(e.getMessage()).setHeader("Connection", "close").setResponse((String) null).sendToClient(s, false);
 				request.cancel();
 				return new RequestResult(null, ReusedConn.FALSE, null);
 			} catch(TimeoutException e) {
-				request.markCompleted();
-				ResponseUtil.send408Response(s, getClientAddress);
+				request.markCompleted(Functions.throwableToStr(e));
+				ResponseUtil.send408Response(s, getClientAddress, request);
+				request.cancel();
+				return new RequestResult(null, ReusedConn.FALSE, null);//reuse, null);
+			} catch(SSLHandshakeException e) {
+				request.markCompleted(Functions.throwableToStr(e));
+				printErrln("Failed to parse client request: Unexpected SSL Handshake interrupted(?).");
 				request.cancel();
 				return new RequestResult(null, ReusedConn.FALSE, null);//reuse, null);
 			} catch(Throwable e) {
-				request.markCompleted();
+				request.markCompleted(Functions.throwableToStr(e));
 				final String message = e.getMessage();
 				if(message != null) {
 					if(message.equalsIgnoreCase("Client sent no data.")) {
-						ResponseUtil.send408Response(s, getClientAddress);
+						ResponseUtil.send408Response(s, getClientAddress, request);
 						request.cancel();
 						return new RequestResult(null, ReusedConn.FALSE, null);
 					} else if(message.equalsIgnoreCase("Software caused connection abort: recv failed") || message.equalsIgnoreCase("Connection reset")) {
 						request.cancel();
 						return new RequestResult(null, ReusedConn.FALSE, null);
+					} else {
+						PrintUtil.printThrowable(e);
 					}
+				} else {
+					PrintUtil.printThrowable(e);
 				}
-				new HTTPServerResponse("HTTP/1.1", HTTP_500, false, StandardCharsets.UTF_8).setStatusMessage("An unhandled exception has occurred.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 500: " + e.getMessage()).sendToClient(s, true);
+				new HTTPServerResponse("HTTP/1.1", HTTP_500, false, StandardCharsets.UTF_8, request).setStatusMessage("An unhandled exception has occurred.").setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close").setHeader("Content-Type", "text/plain").setResponse("Error 500: " + e.getMessage()).sendToClient(s, true);
 				e.printStackTrace();
 				request.cancel();
 				return new RequestResult(null, reuse, null);
@@ -5936,20 +6180,25 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			}
 			if(request.isProxyRequest) {
 				if(enableProxyServer) {
-					request.getStatus().removeFromList();
+					final ClientRequestStatus status = request.getStatus().removeFromList();//Keep a reference to the dang thing. JVM GC keeps eating it..
 					final HTTPClientRequest req = request;
 					Thread proxyThread = new Thread(new Runnable() {
 						@Override
 						public void run() {
+							Throwable err = null;
 							try {
 								String serverAddress = handleProxyRequest(s, in, s.getOutputStream(), req, req.method.equalsIgnoreCase("CONNECT"));
 								PrintUtil.printlnNow("[PROXY] Successfully handled proxy request between client \"" + clientAddress + "\" and server \"" + serverAddress + "\".");
 								PrintUtil.printErrToConsole();
 							} catch(Throwable e) {
+								err = e;
 								PrintUtil.printToConsole();
 								PrintUtil.printErrlnNow("[PROXY] Failed to handle proxy request for client \"" + clientAddress + "\": " + (e.getMessage() == null ? e.getClass().getName() : e.getMessage()));
+								if(e instanceof NullPointerException) {
+									e.printStackTrace();
+								}
 							}
-							req.markCompleted();
+							req.markCompleted(err == null ? "Proxy Request ended normally at: " + StringUtil.getSystemTime(false, false, true) : Functions.throwableToStr(err));
 							sockets.remove(s);
 						}
 					}, Thread.currentThread().getName().replace("Server", "Proxy"));
@@ -5957,62 +6206,62 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					PrintUtil.moveErrLogsToThreadAndClear(proxyThread);
 					proxyThread.setDaemon(true);
 					proxyThread.start();
+					return new RequestResult(request, ReusedConn.FALSE, null);
+				}
+				final boolean isMethodCONNECT = request.method.equalsIgnoreCase("CONNECT");
+				HTTPServerResponse response = new HTTPServerResponse("HTTP/1.1", HTTP_421/*HTTP_500*/, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8, request);
+				final String pageHeader = "<hr><b>" + request.requestedFilePath + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress + "</b>";
+				if(isMethodCONNECT || request.protocol.equals("https://")) {
+					response.setStatusCode(HTTP_405);
+					response.setHeader("Content-Type", "text/html; charset=UTF-8");
+					response.setHeader("Server", SERVER_NAME_HEADER);
+					response.setHeader("Cache-Control", cachePrivateMustRevalidate);
+					response.setHeader("Date", StringUtil.getCurrentCacheTime());
+					response.setResponse("<!DOCTYPE html>\r\n"//
+							+ "<html>\r\n\t<head>\r\n"//
+							+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
+							+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
+							+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + AddressUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
+							+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + AddressUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
+							+ "\t\t<title>405 - Method Not Allowed - " + SERVER_NAME + "</title>\r\n"//
+							+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
+							+ "\t</head>\r\n"//
+							+ "\t<body>\r\n"//
+							+ "\t\t<h1>Error 405 - Method Not Allowed</h1>\r\n"//
+							+ "\t\t<string>Your client's request was a valid proxy request, but this server's proxy functionality is not active.</string>\r\n"//
+							+ "\t</body>\r\n</html>");
+					response.sendToClient(s, true);
 				} else {
-					final boolean isMethodCONNECT = request.method.equalsIgnoreCase("CONNECT");
-					HTTPServerResponse response = new HTTPServerResponse("HTTP/1.1", HTTP_421/*HTTP_500*/, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8);
-					final String pageHeader = "<hr><b>" + request.requestedFilePath + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress + "</b>";
-					if(isMethodCONNECT) {
-						response.setStatusCode(HTTP_405);
-						response.setHeader("Content-Type", "text/html; charset=UTF-8");
-						response.setHeader("Server", SERVER_NAME_HEADER);
-						response.setHeader("Cache-Control", cachePrivateMustRevalidate);
-						response.setHeader("Date", StringUtil.getCurrentCacheTime());
-						response.setResponse("<!DOCTYPE html>\r\n"//
-								+ "<html>\r\n\t<head>\r\n"//
-								+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
-								+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
-								+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + AddressUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
-								+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + AddressUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
-								+ "\t\t<title>405 - Method Not Allowed - " + SERVER_NAME + "</title>\r\n"//
-								+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
-								+ "\t</head>\r\n"//
-								+ "\t<body>\r\n"//
-								+ "\t\t<h1>Error 405 - Method Not Allowed</h1>\r\n"//
-								+ "\t\t<string>Your client's request was a valid proxy request, but this server's proxy functionality is not active.</string>\r\n"//
-								+ "\t</body>\r\n</html>");
-						response.sendToClient(s, true);
-					} else {
-						ResponseUtil.send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
-						/*response.setHeader("Content-Type", "text/html; charset=UTF-8");
-						response.setHeader("Server", SERVER_NAME_HEADER);
-						response.setHeader("Cache-Control", cachePrivateMustRevalidate);
-						response.setHeader("Date", StringUtil.getCurrentCacheTime());
-						response.setResponse("<!DOCTYPE html>\r\n"//
-								+ "<html>\r\n\t<head>\r\n"//
-								+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
-								+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
-								+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + AddressUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
-								+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + AddressUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
-								+ "\t\t<title>500 - Internal Server Error - " + SERVER_NAME + "</title>\r\n"//
-								+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
-								+ "\t</head>\r\n"//
-								+ "\t<body>\r\n"//
-								+ "\t\t<h1>Error 500 - Internal Server Error</h1>\r\n"//
-								+ "\t\t<string>Your client's request was a valid proxy request, but this server's proxy functionality is not active.</string>\r\n"//
-								+ "\t</body>\r\n</html>");
-						response.sendToClient(s, true);*/
-					}
+					ResponseUtil.send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+					/*response.setHeader("Content-Type", "text/html; charset=UTF-8");
+					response.setHeader("Server", SERVER_NAME_HEADER);
+					response.setHeader("Cache-Control", cachePrivateMustRevalidate);
+					response.setHeader("Date", StringUtil.getCurrentCacheTime());
+					response.setResponse("<!DOCTYPE html>\r\n"//
+							+ "<html>\r\n\t<head>\r\n"//
+							+ "\t\t" + HTML_HEADER_META_VIEWPORT + "\r\n"//
+							+ "\t\t" + HTML_HEADER_META_CONTENT_TYPE + "\r\n"//
+							+ "\t\t<link rel=\"shortcut icon\" href=\"http://" + AddressUtil.getIp() + DEFAULT_PAGE_ICON + "\" type=\"image/x-icon\">\r\n"//
+							+ (DomainDirectory.doesStyleSheetExist(DEFAULT_STYLESHEET) ? "\t\t<link rel=\"stylesheet\" href=\"http://" + AddressUtil.getIp() + DEFAULT_STYLESHEET + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(DomainDirectory.getStyleSheetFromFileSystem(DEFAULT_STYLESHEET)) + "\">\r\n" : "")//
+							+ "\t\t<title>500 - Internal Server Error - " + SERVER_NAME + "</title>\r\n"//
+							+ "\t\t<style>body{font-family:\'" + defaultFontFace + "\';}</style>\r\n"//
+							+ "\t</head>\r\n"//
+							+ "\t<body>\r\n"//
+							+ "\t\t<h1>Error 500 - Internal Server Error</h1>\r\n"//
+							+ "\t\t<string>Your client's request was a valid proxy request, but this server's proxy functionality is not active.</string>\r\n"//
+							+ "\t</body>\r\n</html>");
+					response.sendToClient(s, true);*/
 				}
 				return new RequestResult(request, ReusedConn.FALSE, null);
 			}
 			boolean hostDefined = !host.isEmpty();
 			request.host = AddressUtil.getValidHostFor(host);
 			if(!hostDefined && request.version.equalsIgnoreCase("HTTP/1.1")) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("No host header defined: \"" + host + "\"").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("No host header defined: \"" + host + "\"").setResponse((String) null).sendToClient(s, false);
 				return new RequestResult(request, reuse, null);
 			}
 			if(request.method.isEmpty()) {
-				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8).setStatusMessage("Bad protocol request: \"" + request.protocolRequest + "\"").setResponse((String) null).sendToClient(s, false);
+				new HTTPServerResponse("HTTP/1.1", HTTP_400, false, StandardCharsets.UTF_8, request).setStatusMessage("Bad protocol request: \"" + request.protocolRequest + "\"").setResponse((String) null).sendToClient(s, false);
 				if(!HTTPClientRequest.debug) {
 					PrintUtil.clearLogs();
 				}
@@ -6025,7 +6274,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			s.setKeepAlive(reuse.reuse);
 			
 			if(request.method.equalsIgnoreCase("brew")) {
-				HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
+				HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip"), StandardCharsets.UTF_8, request).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
 				if(request.version.toUpperCase().startsWith("HTCPCP/")) {
 					response.setStatusCode(HTTP_418).setStatusMessage("Making coffee is okay.").setHeader("Date", StringUtils.getCurrentCacheTime()).setHeader("Server", SERVER_NAME_HEADER).setHeader("Content-Type", "text/plain; charset=UTF-8").setHeader("Cache-Control", cachePrivateMustRevalidate).setResponse("Your coffee is ready!\r\nDon't drink too much in a day.\r\n").sendToClient(s, true);
 				} else {
@@ -6042,7 +6291,9 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 				domainDirectory = DomainDirectory.getTemporaryDomain();
 				domainDirectory.domain.setValue(request.host);
 				domainDirectory.displayName.setValue(request.host);
+				println("\t--- Using temporary domain: " + domainDirectory.getDomain());
 			}
+			request.domainDirectory = domainDirectory;
 			if(!domainDirectory.getDisplayLogEntries()) {
 				PrintUtil.clearLogsBeforeDisplay();
 				PrintUtil.clearErrLogsBeforeDisplay();
@@ -6054,11 +6305,12 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 			} else {
 				println("\t\tHome directory for domain \"" + request.host + "\" is: \"" + homeDirectory.getAbsolutePath() + "\"!");
 			}
-			final HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip") && domainDirectory.getEnableGZipCompression(), StandardCharsets.UTF_8).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
+			final HTTPServerResponse response = new HTTPServerResponse(request.version, HTTP_501, request.acceptEncoding.toLowerCase().contains("gzip") && domainDirectory.getEnableGZipCompression(), StandardCharsets.UTF_8, request).setHeader("Keep-Alive", "timeout=30").setHeader("Connection", reuse.reuse ? "keep-alive" : "close");
 			response.setDomainDirectory(domainDirectory);
 			
 			if(!request.protocolRequest.isEmpty()) {
 				final File requestedFile = domainDirectory.getFileFromRequest(request.requestedFilePath, request.requestArguments);//requestedFile = new File(homeDirectory, htmlToText(domainDirectory.replaceAliasWithPath(arg)));//arg
+				final boolean isFileRestrictedOrHidden = RestrictedFile.isFileForbidden(requestedFile) || RestrictedFile.isFileRestricted(requestedFile) || RestrictedFile.isHidden(requestedFile, true);
 				if(ForumClientResponder.HandleRequest(s, domainDirectory, request, response)) {
 					return new RequestResult(request, reuse, null);
 				}
@@ -6073,7 +6325,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					
 					if(((requestedFile != null && requestedFile.exists()) || request.requestedFilePath.equals("*")) && (testDomain != null || domainIsLocalHost)) {
 						if(requestedFile != null) {
-							if(domainDirectory.areDirectoriesForbidden() && requestedFile.isDirectory()) {
+							/*if(domainDirectory.areDirectoriesForbidden() && requestedFile.isDirectory()) {
 								response.setStatusCode(HTTP_403);
 								response.setHeader("Content-Type", "text/html; charset=UTF-8");
 								response.setHeader("Server", SERVER_NAME_HEADER);
@@ -6157,18 +6409,52 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 										return new RequestResult(request, reuse, null);
 									}
 								}
+							}*/
+							RestrictedFile res = RestrictedFile.getSpecificRestrictedFile(requestedFile);
+							res = res == null ? RestrictedFile.getRestrictedFile(requestedFile) : res;
+							final String inetAddress = s.getInetAddress().getHostAddress();
+							final boolean isDirectory = requestedFile.isDirectory();
+							final boolean isFileRestricted;
+							final boolean isIPAllowed;
+							final boolean isFileForbidden;
+							if(res == null) {
+								isFileRestricted = false;
+								isIPAllowed = true;
+								isFileForbidden = false;
+							} else {
+								isFileRestricted = res.isPasswordProtected();
+								isIPAllowed = !res.isIPAllowed(inetAddress);
+								isFileForbidden = res.isFileForbidden();//If false, then there either is a password, or the file is actually not restricted.
 							}
+							response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
+							response.setHeader("Date", StringUtils.getCurrentCacheTime());
+							response.setHeader("Content-Type", "text/plain; charset=UTF-8");
+							response.setHeader("Server", SERVER_NAME_HEADER);
+							response.setHeader("Content-Length", "0");
+							String allowHeader = "GET,HEAD," + (isDirectory ? "POST," : "") + "OPTIONS";
+							if(isFileForbidden || isFileRestricted) {
+								allowHeader = isIPAllowed ? allowHeader : "OPTIONS";
+							}
+							response.setHeader("Allow", allowHeader);//"GET,HEAD,POST,OPTIONS");
+							response.setResponse((String) null);//TODO Maybe find out what content is sent with the OPTIONS method(Like 'httpd/unix-directory')?
+							response.sendToClient(s, false);
+							connectedClients.remove(clientInfo);
+							return new RequestResult(request, reuse, null);
+						} else if(request.requestedFilePath.equals("*")) {
+							response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
+							response.setHeader("Date", StringUtils.getCurrentCacheTime());
+							response.setHeader("Content-Type", "text/plain; charset=UTF-8");
+							response.setHeader("Server", SERVER_NAME_HEADER);
+							response.setHeader("Content-Length", "0");
+							response.setHeader("Allow", "GET,HEAD,POST," + (isProxyServerEnabled() ? "CONNECT," : "") + "OPTIONS");
+							response.setResponse((String) null);//TODO Maybe find out what content is sent with the OPTIONS method(Like 'httpd/unix-directory')?
+							response.sendToClient(s, false);
+							connectedClients.remove(clientInfo);
+							return new RequestResult(request, reuse, null);
+						} else {
+							ResponseUtil.send404Response(s, request, response, clientInfo, domainDirectory, pageHeader);//(The body of this response won't be sent since it is an OPTIONS request.)
+							return new RequestResult(request, reuse, null);
 						}
-						response.setStatusCode(connectionSeemsMalicious ? HTTP_429 : HTTP_200);
-						response.setHeader("Date", StringUtils.getCurrentCacheTime());
-						response.setHeader("Allow", "GET,HEAD," + (request.requestedFilePath.equals("*") ? "POST," : "") + "CONNECT,OPTIONS");//"GET,HEAD,POST,OPTIONS");
-						response.setHeader("Content-Type", "text/plain; charset=UTF-8");
-						response.setHeader("Server", SERVER_NAME_HEADER);
-						response.setHeader("Content-Length", "0");
-						response.setResponse((String) null);//TODO Maybe find out what content is sent with the OPTIONS method(Like 'httpd/unix-directory')?
-						response.sendToClient(s, false);
-						connectedClients.remove(clientInfo);
-						return new RequestResult(request, reuse, null);
 					} else if(testDomain == null && !domainIsLocalHost) {
 						ResponseUtil.send421Response(s, request, response, clientInfo, domainDirectory, pageHeader);
 						return new RequestResult(request, reuse, null);
@@ -6185,6 +6471,8 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 					final String pageHeader = "<hr><b>" + (path.startsWith("/") ? path : "/" + path) + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress + "</b>";
 					String administrateFileCheck = request.requestArguments.get("administrateFile");
 					final boolean administrateFile = administrateFileCheck != null ? (administrateFileCheck.equals("1") || administrateFileCheck.equalsIgnoreCase("true")) : false;
+					String modifyFileCheck = request.requestArguments.get("modifyFile");
+					final boolean modifyFile = modifyFileCheck != null ? (modifyFileCheck.equals("1") || modifyFileCheck.equalsIgnoreCase("true")) : false;
 					
 					if(requestedFile != null && requestedFile.exists() && (testDomain != null || domainIsLocalHost)) {
 						if(domainDirectory.areDirectoriesForbidden() && requestedFile.isDirectory() && !administrateFile && !requestedFile.equals(domainDirectory.getDirectory())) {
@@ -6200,6 +6488,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									+ "\t\t<title>403 - Forbidden - " + domainDirectory.getServerName() + "</title>\r\n"//
 									+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 									+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+									+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 									+ "\t</head>\r\n"//
 									+ "\t<body>\r\n"//
 									+ "\t\t<h1>Error 403 - Forbidden</h1><hr>\r\n"//
@@ -6219,7 +6508,9 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 						
 						if(RestrictedFile.isFileRestricted(requestedFile, s.getInetAddress().getHostAddress()) && !isExempt) {
 							printlnDebug("layout: \"" + layout + "\"; favicon: \"" + favicon + "\";\r\nrequestedFilePath: \"" + request.requestedFilePath + "\";");
-							RestrictedFile restrictedFile = RestrictedFile.getRestrictedFile(requestedFile);
+							RestrictedFile restrictedFile = RestrictedFile.getSpecificRestrictedFile(requestedFile);
+							restrictedFile = restrictedFile == null ? RestrictedFile.getRestrictedFile(requestedFile) : restrictedFile;
+							boolean usedAPassword = false;
 							if(restrictedFile != null) {
 								if(restrictedFile.isPasswordProtected()) {
 									String clientResponse;
@@ -6232,6 +6523,19 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 									String clientUser = creds.length == 2 ? creds[0] : "";
 									String clientPass = creds.length == 2 ? creds[1] : "";
 									if(!restrictedFile.areCredentialsValid(clientUser, clientPass)) {
+										if(RestrictedFile.isHidden(requestedFile, true)) {
+											boolean exempt = false;
+											RestrictedFile specificRes = RestrictedFile.getSpecificRestrictedFile(requestedFile);
+											if(specificRes != null) {
+												if(specificRes.isIPAllowed(s.getInetAddress().getHostAddress())) {
+													exempt = true;
+												}
+											}
+											if(!exempt) {
+												ResponseUtil.send404Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+												return new RequestResult(request, reuse, null);
+											}
+										}
 										response.setStatusCode(HTTP_401).setStatusMessage(clientResponse.isEmpty() ? "" : "\r\n\t\t*** (client attempted to authenticate using the following creds: \"" + (areCredentialsValidForAdministration(clientUser, clientPass) ? "[ADMINISTRATION_CREDS]" : clientResponse) + "\")");
 										response.setHeader("Content-Type", "text/html; charset=UTF-8");
 										response.setHeader("Server", SERVER_NAME_HEADER);
@@ -6246,6 +6550,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 												+ "\t\t<title>401 - Authorization Required - " + domainDirectory.getServerName() + "</title>\r\n"//
 												+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 												+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+												+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 												+ "\t</head>\r\n"//
 												+ "\t<body>\r\n"//
 												+ "\t\t<h1>Error 401 - Authorization Required</h1>\r\n"//
@@ -6255,7 +6560,21 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 										connectedClients.remove(clientInfo);
 										return new RequestResult(request, reuse, null);
 									}
+									usedAPassword = true;
 								} else {
+									if(RestrictedFile.isHidden(requestedFile, true)) {
+										boolean exempt = usedAPassword;
+										RestrictedFile specificRes = RestrictedFile.getSpecificRestrictedFile(requestedFile);
+										if(specificRes != null) {
+											if(specificRes.isIPAllowed(s.getInetAddress().getHostAddress())) {
+												exempt = true;
+											}
+										}
+										if(!exempt) {
+											ResponseUtil.send404Response(s, request, response, clientInfo, domainDirectory, pageHeader);
+											return new RequestResult(request, reuse, null);
+										}
+									}
 									response.setStatusCode(HTTP_403);
 									response.setHeader("Content-Type", "text/html; charset=UTF-8");
 									response.setHeader("Server", SERVER_NAME_HEADER);
@@ -6268,6 +6587,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 											+ "\t\t<title>403 - Forbidden - " + domainDirectory.getServerName() + "</title>\r\n"//
 											+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 											+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+											+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 											+ "\t</head>\r\n"//
 											+ "\t<body>\r\n"//
 											+ "\t\t<h1>Error 403 - Forbidden</h1><hr>\r\n"//
@@ -6336,6 +6656,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								+ "\t\t<title>404 - File not Found!!!11 - " + domainDirectory.getServerName() + "</title>\r\n"//
 								+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 								+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+								+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 								+ "\t</head>\r\n"//
 								+ "\t<body>\r\n"//
 								+ "\t\t<h1>Error 404 - File not found</h1><hr>\r\n"//
@@ -6359,12 +6680,23 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 						response.setHeader("Date", StringUtils.getCurrentCacheTime());
 						response.setResponse(phpResponse.body);
 						response.sendToClient(s, true);
+						connectedClients.remove(clientInfo);
+						return new RequestResult(request, reuse, null);
 					} else if(request.contentType.toLowerCase().contains("multipart/form-data")) {//XXX multipart/form-data
 						if(request.multiPartFormData == null) {
 							//HttpDigestAuthorization serverAdministrationAuth = getOrCreateAuthForCurrentThread();
+							String clientResponse;
+							try {
+								clientResponse = new String(Base64.getDecoder().decode(request.authorization.replace("Basic", "").trim().getBytes()));
+							} catch(IllegalArgumentException ignored) {
+								clientResponse = "";
+							}
+							String[] creds = clientResponse.split(":");
+							String clientUser = creds.length == 2 ? creds[0] : "";
+							String clientPass = creds.length == 2 ? creds[1] : "";
 							final BasicAuthorizationResult authResult = authenticateBasicForServerAdministration(request, false);//AuthorizationResult authResult = serverAdministrationAuth.authenticate(request.authorization, new String(request.postRequestData), request.protocol, request.host, clientIP, request.cookies);
 							if(!authResult.passed()) {
-								response.setStatusCode(HTTP_401);//.setStatusMessage(clientResponse.isEmpty() ? "" : "\r\n\t\t*** (client attempted to authenticate using the following creds: \"" + (areCredentialsValidForAdministration(clientUser, clientPass) ? "[ADMINISTRATION_CREDS]" : clientResponse) + "\")");
+								response.setStatusCode(HTTP_401).setStatusMessage(clientResponse.isEmpty() ? "" : "\r\n\t\t*** (client attempted to authenticate using the following creds: \"" + (areCredentialsValidForAdministration(clientUser, clientPass) ? "[ADMINISTRATION_CREDS]" : clientResponse) + "\")");
 								response.setHeader("Content-Type", "text/html; charset=UTF-8");
 								response.setHeader("Server", SERVER_NAME_HEADER);
 								response.setHeader("Cache-Control", cachePrivateMustRevalidate);
@@ -6381,6 +6713,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 										+ "\t\t<title>401 - Authorization Required - " + domainDirectory.getServerName() + "</title>\r\n"//
 										+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 										+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+										+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 										+ "\t</head>\r\n"//
 										+ "\t<body>\r\n"//
 										+ "\t\t<h1>Error 401 - Authorization Required</h1><hr>\r\n"//
@@ -6391,45 +6724,23 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								connectedClients.remove(clientInfo);
 								return new RequestResult(request, reuse, null);
 							}
+							println("\t /!\\ Client sent multipart/form-data, but the request.multiPartFormData object was null!\r\n\t/___\\");
 							if(authResult.authorizedCookie != null) {
 								response.setHeader("Set-Cookie", authResult.authorizedCookie);
 							}
-						} else if(request.multiPartFormData != null) {
-							if(!request.multiPartFormData.fileData.isEmpty()) {
-								if(!domainDirectory.getEnableFileUpload()) {
-									response.setStatusCode(HTTP_204);
-									response.setHeader("Vary", "Accept-Encoding");
-									response.setHeader("Content-Type", "text/html; charset=UTF-8");
-									response.setHeader("Server", SERVER_NAME_HEADER);
-									response.setHeader("Cache-Control", (requestedFile.isDirectory() ? "no-cache, must-revalidate" : "public, max-age=" + domainDirectory.getCacheMaxAge()));
-									response.setHeader("Content-Length", "0");
-									response.setResponse((String) null);
-									response.sendToClient(s, false);
-									request.multiPartFormData.close();
-									request.multiPartFormData = null;
-									System.gc();
-									return new RequestResult(request, reuse, null);
-								}
-								if(requestedFile.isDirectory()) {
-									for(FileData data : request.multiPartFormData.fileData) {
-										try {
-											data.writeFileToFolder(requestedFile);
-										} catch(IOException e) {
-											PrintUtil.printThrowable(e);
-										}
-									}
-								}
-								response.setStatusCode(HTTP_303);
-								response.setStatusMessage("Client posted " + request.multiPartFormData.fileData.size() + " file" + (request.multiPartFormData.fileData.size() == 1 ? "" : "s") + " in the requested folder.");
-								response.setHeader("Vary", "Accept-Encoding");
-								response.setHeader("Content-Type", "text/html; charset=UTF-8");
-								response.setHeader("Server", SERVER_NAME_HEADER);
-								response.setHeader("Cache-Control", (requestedFile.isDirectory() ? "no-cache, must-revalidate" : "public, max-age=" + domainDirectory.getCacheMaxAge()));
-								response.setHeader("Location", /*"http://" + domainDirectory.getDomain() + */request.requestedFilePath/**/+ "?administrateFile=1"/**/+ (request.multiPartFormData.fileData.size() >= 1 ? "#" + request.multiPartFormData.fileData.get(0).fileName : ""));
-								response.setHeader("Content-Length", "0");
-								response.setResponse((String) null);
-								response.sendToClient(s, false);
-							} else {
+							response.setStatusCode(HTTP_500);
+							response.setHeader("Vary", "Accept-Encoding");
+							response.setHeader("Content-Type", "text/html; charset=UTF-8");
+							response.setHeader("Server", SERVER_NAME_HEADER);
+							response.setHeader("Cache-Control", (requestedFile.isDirectory() ? "no-cache, must-revalidate" : "public, max-age=" + domainDirectory.getCacheMaxAge()));
+							response.setHeader("Content-Length", "0");
+							response.setResponse((String) null);
+							response.sendToClient(s, false);
+							connectedClients.remove(clientInfo);
+							return new RequestResult(request, reuse, null);
+						}
+						if(!request.multiPartFormData.fileData.isEmpty()) {
+							if(!domainDirectory.getEnableFileUpload()) {
 								response.setStatusCode(HTTP_204);
 								response.setHeader("Vary", "Accept-Encoding");
 								response.setHeader("Content-Type", "text/html; charset=UTF-8");
@@ -6438,28 +6749,62 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 								response.setHeader("Content-Length", "0");
 								response.setResponse((String) null);
 								response.sendToClient(s, false);
+								request.multiPartFormData.close();
+								request.multiPartFormData = null;
+								System.gc();
+								return new RequestResult(request, reuse, null);
 							}
-							if(HTTPClientRequest.debug) {
-								int i = 0;
-								for(Entry<String, String> entry : request.multiPartFormData.formData.entrySet()) {
-									PrintUtil.printlnNow("[" + i + "]: " + entry.getKey() + " = " + entry.getValue() + ";");
-									i++;
+							if(requestedFile.isDirectory()) {
+								for(FileDataUtil data : request.multiPartFormData.fileData) {
+									try {
+										data.writeFileToFolder(requestedFile);
+									} catch(IOException e) {
+										PrintUtil.printThrowable(e);
+									}
 								}
 							}
-							request.multiPartFormData.close();
-							request.multiPartFormData = null;
-							System.gc();
-						} else {
-							response.setStatusCode(HTTP_501);
+							response.setStatusCode(HTTP_303);
+							response.setStatusMessage("Client posted " + request.multiPartFormData.fileData.size() + " file" + (request.multiPartFormData.fileData.size() == 1 ? "" : "s") + " in the requested folder.");
 							response.setHeader("Vary", "Accept-Encoding");
 							response.setHeader("Content-Type", "text/html; charset=UTF-8");
 							response.setHeader("Server", SERVER_NAME_HEADER);
 							response.setHeader("Cache-Control", (requestedFile.isDirectory() ? "no-cache, must-revalidate" : "public, max-age=" + domainDirectory.getCacheMaxAge()));
+							response.setHeader("Location", /*"http://" + domainDirectory.getDomain() + */request.requestedFilePath/**/+ "?administrateFile=1"/**/+ (request.multiPartFormData.fileData.size() >= 1 ? "#" + request.multiPartFormData.fileData.get(0).fileName : ""));
 							response.setHeader("Content-Length", "0");
 							response.setResponse((String) null);
 							response.sendToClient(s, false);
+							connectedClients.remove(clientInfo);
+							return new RequestResult(request, reuse, null);
 						}
+						response.setStatusCode(HTTP_204);
+						response.setHeader("Vary", "Accept-Encoding");
+						response.setHeader("Content-Type", "text/html; charset=UTF-8");
+						response.setHeader("Server", SERVER_NAME_HEADER);
+						response.setHeader("Cache-Control", (requestedFile.isDirectory() ? "no-cache, must-revalidate" : "public, max-age=" + domainDirectory.getCacheMaxAge()));
+						response.setHeader("Content-Length", "0");
+						response.setResponse((String) null);
+						response.sendToClient(s, false);
+						if(HTTPClientRequest.debug) {
+							int i = 0;
+							for(Entry<String, String> entry : request.multiPartFormData.formData.entrySet()) {
+								PrintUtil.printlnNow("[" + i + "]: " + entry.getKey() + " = " + entry.getValue() + ";");
+								i++;
+							}
+						}
+						request.multiPartFormData.close();
+						request.multiPartFormData = null;
+						System.gc();
+						connectedClients.remove(clientInfo);
+						return new RequestResult(request, reuse, null);
 					}
+					response.setStatusCode(HTTP_501);
+					response.setHeader("Vary", "Accept-Encoding");
+					response.setHeader("Content-Type", "text/html; charset=UTF-8");
+					response.setHeader("Server", SERVER_NAME_HEADER);
+					response.setHeader("Cache-Control", (requestedFile.isDirectory() ? "no-cache, must-revalidate" : "public, max-age=" + domainDirectory.getCacheMaxAge()));
+					response.setHeader("Content-Length", "0");
+					response.setResponse((String) null);
+					response.sendToClient(s, false);
 					connectedClients.remove(clientInfo);
 					return new RequestResult(request, reuse, null);
 				}
@@ -6482,6 +6827,7 @@ public final class JavaWebServer {//TODO Implement per-folder background color/i
 						+ "\t\t<title>501 - Feature not Implemented - " + domainDirectory.getServerName() + "</title>\r\n"//
 						+ "\t\t<style>body{font-family:\'" + domainDirectory.getDefaultFontFace() + "\';}</style>\r\n"//
 						+ (domainDirectory.doesDefaultStyleSheetExist() ? "\t\t<link rel=\"stylesheet\" href=\"" + domainDirectory.getDefaultStylesheet() + "\" type=\"text/css\" charset=\"" + StringUtils.getDetectedEncoding(domainDirectory.getDefaultStyleSheetFromFileSystem()) + "\">\r\n" : "")//
+						+ (isFileRestrictedOrHidden ? "" : "\t\t" + domainDirectory.getPageHeaderContent() + "\r\n")//
 						+ "\t</head>\r\n"//
 						+ "\t<body>\r\n"//
 						+ "\t\t<h1>Error 501 - Not Implemented</h1><hr>\r\n"//

@@ -1,6 +1,3 @@
-/**
- * 
- */
 package com.gmail.br45entei.gui;
 
 import org.eclipse.swt.SWT;
@@ -10,8 +7,10 @@ import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Shell;
 
+/** A test SWT class */
 public class Snippet5 {
 	
+	/** @param args System command arguments */
 	public static void main(String[] args) {
 		Display display = new Display();
 		Shell shell = new Shell(display);

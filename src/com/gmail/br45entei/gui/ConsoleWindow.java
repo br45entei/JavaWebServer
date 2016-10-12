@@ -128,6 +128,7 @@ public class ConsoleWindow {
 		}
 	}
 	
+	/** @return This window's shell */
 	public final Shell getShell() {
 		return this.shell;
 	}

@@ -126,7 +126,7 @@ public class Main {
 	
 	private Main(final String[] args) {
 		instance = this;
-		this.showConsoleWindow = System.console() == null || StringUtils.containsIgnoreCase("console", args);
+		this.showConsoleWindow = (!StringUtils.containsIgnoreCase("noconsole", args) && !StringUtils.containsIgnoreCase("nogui", args)) && (System.console() == null || StringUtils.containsIgnoreCase("console", args));
 		this.consoleWindow = new ConsoleWindow();
 		if(this.showConsoleWindow) {
 			this.consoleWindow.createContents();
@@ -141,7 +141,7 @@ public class Main {
 				JavaWebServer.sysMain(args);
 			}
 		}, JavaWebServer.ThreadName);
-		this.consoleThread = new ConsoleThread();
+		this.consoleThread = new ConsoleThread(args);
 	}
 	
 	/** Open the window.
@@ -198,8 +198,7 @@ public class Main {
 		this.exitCheck();
 		if(this.shell.isVisible()) {
 			if(!this.shell.getDisplay().readAndDispatch()) {
-				//display.sleep();
-				CodeUtil.sleep(1L);
+				CodeUtil.sleep(1L);//display.sleep();
 			}
 			return;
 		}
@@ -599,4 +598,5 @@ public class Main {
 		}
 		this.runClock();
 	}
+	
 }

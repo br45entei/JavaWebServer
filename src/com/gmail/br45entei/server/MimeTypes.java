@@ -710,7 +710,7 @@ public class MimeTypes {
 		MIME_Types.put(".qti", "image/x-quicktime");
 		MIME_Types.put(".qtif", "image/x-quicktime");
 		MIME_Types.put(".rast", "image/cmu-raster");
-		MIME_Types.put(".reg", "text/plain");
+		MIME_Types.put(".reg", "application/registry-editor");//"text/plain");
 		MIME_Types.put(".rexx", "text/x-script.rexx");
 		MIME_Types.put(".rf", "image/vnd.rn-realflash");
 		MIME_Types.put(".rmi", "audio/mid");

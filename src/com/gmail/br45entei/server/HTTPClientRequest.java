@@ -1,11 +1,12 @@
 package com.gmail.br45entei.server;
 
 import com.gmail.br45entei.JavaWebServer;
-import com.gmail.br45entei.data.BasicAuthorizationResult;
 import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FormURLEncodedData;
 import com.gmail.br45entei.server.data.MultipartFormData;
+import com.gmail.br45entei.server.logging.RequestLog;
+import com.gmail.br45entei.swt.Functions;
 import com.gmail.br45entei.util.AddressUtil;
 import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.PrintUtil;
@@ -28,69 +29,76 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
+import javax.net.ssl.SSLHandshakeException;
+
 /** @author Brian_Entei */
 @SuppressWarnings("javadoc")
 public class HTTPClientRequest {
 	public static boolean					debug					= false;
 	
+	public final long						creationTime;
+	public volatile String					result					= "";
+	public volatile DomainDirectory			domainDirectory			= null;
+	
 	//private final Socket					client;
-	private InputStream						in;
-	private boolean							isFinished				= false;
-	private boolean							isCancelled				= false;
-	private boolean							isPostRequest			= false;
-	private ClientRequestStatus				status;
+	private final String					clientIpAddress;
+	private volatile InputStream			in;
+	private volatile boolean				isFinished				= false;
+	private volatile boolean				isCancelled				= false;
+	private volatile boolean				isPostRequest			= false;
+	private volatile ClientRequestStatus	status;
 	
 	private volatile boolean				isCompleted				= false;
 	
-	public String							requestLogs				= "";
+	public volatile String					requestLogs				= "";
 	
-	public String							protocolRequest			= "";
+	public volatile String					protocolRequest			= "";
 	
-	public String							method					= "";
-	public String							requestedFilePath		= "";
-	public String							requestedServerAddress	= "";
-	public String							version					= "";
+	public volatile String					method					= "";
+	public volatile String					requestedFilePath		= "";
+	public volatile String					requestedServerAddress	= "";
+	public volatile String					version					= "";
 	
-	public String							upgrade					= "";
+	public volatile String					upgrade					= "";
 	
 	public final HashMap<String, String>	headers					= new HashMap<>();
 	public final ArrayList<String>			cookies					= new ArrayList<>();
 	
-	public boolean							isProxyRequest			= false;
+	public volatile boolean					isProxyRequest			= false;
 	
-	public String							protocol				= "";
-	public String							host					= "";
-	public String							hostNoPort				= "";
-	public String							http2Host				= "";
-	public String							connectionSetting		= "";
-	public String							cacheControl			= "";
-	public String							accept					= "";
-	public String							userAgent				= "";
-	public String							dnt						= "";
-	public String							referrerLink			= "";
-	public String							acceptEncoding			= "";
-	public String							acceptLanguage			= "";
-	public String							from					= "";
-	public String							range					= "";
-	public String							authorization			= "";
-	public String							ifModifiedSince			= "";
-	public String							ifNoneMatch				= "";
-	public String							ifRange					= "";
-	public String							xForwardedFor			= "";
-	public String							via						= "";
-	public ForwardedHeaderData				forwardedHeader			= new ForwardedHeaderData("");
-	public String							proxyConnection			= "";
-	public String							proxyAuthorization		= "";
+	public volatile String					protocol				= "";
+	public volatile String					host					= "";
+	public volatile String					hostNoPort				= "";
+	public volatile String					http2Host				= "";
+	public volatile String					connectionSetting		= "";
+	public volatile String					cacheControl			= "";
+	public volatile String					accept					= "";
+	public volatile String					userAgent				= "";
+	public volatile String					dnt						= "";
+	public volatile String					referrerLink			= "";
+	public volatile String					acceptEncoding			= "";
+	public volatile String					acceptLanguage			= "";
+	public volatile String					from					= "";
+	public volatile String					range					= "";
+	public volatile String					authorization			= "";
+	public volatile String					ifModifiedSince			= "";
+	public volatile String					ifNoneMatch				= "";
+	public volatile String					ifRange					= "";
+	public volatile String					xForwardedFor			= "";
+	public volatile String					via						= "";
+	public volatile ForwardedHeaderData		forwardedHeader			= new ForwardedHeaderData("");
+	public volatile String					proxyConnection			= "";
+	public volatile String					proxyAuthorization		= "";
 	//POST
-	public String							contentLength			= "";
-	public String							contentType				= "";
-	public FormURLEncodedData				formURLEncodedData;
-	public MultipartFormData				multiPartFormData;
-	public String							origin					= "";
+	public volatile String					contentLength			= "";
+	public volatile String					contentType				= "";
+	public volatile FormURLEncodedData		formURLEncodedData;
+	public volatile MultipartFormData		multiPartFormData;
+	public volatile String					origin					= "";
 	//public String							postRequestStr			= "";
-	public byte[]							postRequestData			= new byte[0];
+	public volatile byte[]					postRequestData			= new byte[0];
 	
-	public String							requestArgumentsStr		= "";
+	public volatile String					requestArgumentsStr		= "";
 	public final HashMap<String, String>	requestArguments		= new HashMap<>();
 	
 	private final boolean isFinished() {
@@ -109,13 +117,13 @@ public class HTTPClientRequest {
 	
 	//public final HashMap<String, String>	postRequestArguments	= new HashMap<>();
 	
-	private static final String readLine(InputStream in, ClientRequestStatus status) throws IOException {
+	private static final String readLine(InputStream in, ClientRequestStatus status) throws IOException, SSLHandshakeException {
 		if(in == null) {
 			return null;
 		}
 		String line = "";
 		int read;
-		while((read = in.read()) != -1) {
+		while((read = in.read()) != -1) {//SSLHandshakeException happens here... ??? weird.
 			status.incrementCount();
 			status.markReadTime();
 			byte[] r0 = new byte[] {(byte) read};
@@ -184,6 +192,7 @@ public class HTTPClientRequest {
 						this.multiPartFormData.close();
 					}
 					this.multiPartFormData = null;
+					JavaWebServer.printlnDebug("Test 0");
 					System.gc();
 					break;
 				}
@@ -231,8 +240,15 @@ public class HTTPClientRequest {
 	}
 	
 	public HTTPClientRequest(Socket s, InputStream in) {
+		this.creationTime = System.currentTimeMillis();
+		String remSocAddr = s.getRemoteSocketAddress().toString().trim();
+		this.clientIpAddress = AddressUtil.getClientAddressNoPort(remSocAddr.startsWith("/") ? remSocAddr.substring(1).trim() : remSocAddr);
 		this.in = in;
 		this.status = new ClientRequestStatus(s, 0);
+	}
+	
+	public final String getClientIPAddress() {
+		return this.clientIpAddress;
 	}
 	
 	private final void checkForPause() {
@@ -272,7 +288,7 @@ public class HTTPClientRequest {
 		}
 	}
 	
-	protected final void parseRequest() throws IOException, NumberFormatException, OutOfMemoryError, CancellationException {
+	protected final void parseRequest() throws IOException, NumberFormatException, OutOfMemoryError, CancellationException, SSLHandshakeException {
 		//final String clientAddress = this.status.getClientAddress();
 		//final String clientIP = AddressUtil.getClientAddressNoPort(clientAddress);
 		int i = 0;
@@ -297,15 +313,17 @@ public class HTTPClientRequest {
 			if(this.status.isCancelled()) {
 				break;
 			}
-			//PrintUtil.printlnNow("Read line: \"" + line + "\"");
+			JavaWebServer.printlnDebug("Read line: \"" + line + "\"");
 			if(line.isEmpty()) {
 				if(this.isProxyRequest && !JavaWebServer.isProxyServerEnabled()) {
 					this.formURLEncodedData = new FormURLEncodedData("");
 					this.multiPartFormData = null;
+					JavaWebServer.printlnDebug("Test 1");
 					this.postRequestData = new byte[0];
 					break;
 				}
 				if(this.method.equalsIgnoreCase("POST") && !this.contentLength.isEmpty()) {
+					JavaWebServer.printlnDebug("Test: Method was POST!");
 					this.status.setStatus("Receiving client POST data...");
 					this.isPostRequest = true;
 					final long contentLength = new Long(this.contentLength).longValue();
@@ -321,11 +339,15 @@ public class HTTPClientRequest {
 					int read;
 					
 					long remaining = contentLength - count;
+					this.status.setStatus("Receiving client POST data: [0] / " + contentLength + "(" + Functions.humanReadableByteCount(remaining, true, 2) + " remaining);");
 					try(DisposableByteArrayOutputStream baos = new DisposableByteArrayOutputStream()) {
+						JavaWebServer.printlnDebug("Test: POST - RECEIVE DATA");
 						this.status.markDataTransferStartTime();
+						this.status.setCancellable(false);
 						while((read = this.in.read(buf, 0, buf.length)) != -1) {
 							count += read;
 							remaining = contentLength - count;
+							this.status.setStatus("Receiving client POST data: " + count + " / " + contentLength + "(" + Functions.humanReadableByteCount(remaining, true, 2) + " remaining);");
 							this.status.markReadTime();
 							this.status.setCount(count);
 							this.status.setLastReadAmount(read);
@@ -352,6 +374,7 @@ public class HTTPClientRequest {
 						}
 						this.postRequestData = baos.getBytesAndDispose();
 						addToDebugFile(this.postRequestData);
+						this.status.setCancellable(true);
 					} catch(IOException e) {
 						PrintUtil.printlnNow("Failed to read client request data: " + StringUtil.throwableToStr(e));
 						this.postRequestData = new byte[0];
@@ -375,6 +398,7 @@ public class HTTPClientRequest {
 							this.multiPartFormData.close();
 						}
 						this.multiPartFormData = null;
+						JavaWebServer.printlnDebug("Test 2");
 						this.postRequestData = new byte[0];
 						System.gc();
 						throw new CancellationException("Request was cancelled.");
@@ -395,27 +419,31 @@ public class HTTPClientRequest {
 					if(!this.isProxyRequest) {//We don't want to mess with the proxy requests' post data. That would kinda be, well, snooping.
 						if(this.contentType.toLowerCase().contains("multipart/form-data")) {
 							this.status.setStatus("Parsing client multipart/form-data...");
-							BasicAuthorizationResult authResult = JavaWebServer.authenticateBasicForServerAdministration(this, JavaWebServer.useCookieAuthentication);
-							if(!authResult.passed() && JavaWebServer.useCookieAuthentication) {
-								authResult = JavaWebServer.authenticateBasicForServerAdministration(this, false);
-							}
-							if(authResult.passed()) {//if(JavaWebServer.getOrCreateAuthForCurrentThread().authenticate(this.authorization, new String(this.postRequestData), this.protocol, this.host, clientIP, this.cookies).passed()) {
-								try {
-									this.multiPartFormData = new MultipartFormData(this.postRequestData, this.contentType, this.status, this);
-								} catch(IllegalArgumentException e) {
-									PrintUtil.printThrowable(e);//e.printStackTrace();
-									this.multiPartFormData = null;
-								}
-							} else {
+							try {
+								this.multiPartFormData = new MultipartFormData(this.postRequestData, this.contentType, this.status, this);
+								JavaWebServer.printlnDebug("Test 3");
+							} catch(IllegalArgumentException e) {
+								PrintUtil.printThrowable(e);//e.printStackTrace();
 								this.multiPartFormData = null;
+								JavaWebServer.printlnDebug("Test 4");
 							}
+							if(this.multiPartFormData == null) {
+								JavaWebServer.printlnDebug("Test 6: Failure");
+							} else {
+								JavaWebServer.printlnDebug("Test 6: Pass!");
+							}
+						} else {
+							JavaWebServer.printlnDebug("Test 7");
 						}
+					} else {
+						JavaWebServer.printlnDebug("Test 8");
 					}
 					if(this.contentType.equalsIgnoreCase("application/x-www-form-urlencoded")) {
 						this.status.setStatus("Parsing client POST data...");
 						this.formURLEncodedData = new FormURLEncodedData(this.postRequestData);
 					}
 				} else {
+					JavaWebServer.printlnDebug("Test: POST - Method was not POST!");
 					DisposableByteArrayOutputStream baos = new DisposableByteArrayOutputStream();
 					byte[] buf = new byte[1024];
 					try {
@@ -594,16 +622,13 @@ public class HTTPClientRequest {
 					this.proxyConnection = line.substring("Proxy-Connection:".length()).trim();
 				} else if(line.toLowerCase().startsWith("proxy-authorization: ")) {
 					this.proxyAuthorization = line.substring("Proxy-Authorization:".length()).trim();
-				} else if(this.protocolRequest.toUpperCase().startsWith("POST")) {
-					if(line.toLowerCase().startsWith("content-length: ")) {
-						this.contentLength = line.substring("Content-Length:".length()).trim();
-					} else if(line.toLowerCase().startsWith("content-type: ")) {
-						this.contentType = line.substring("Content-Type:".length()).trim();
-					} else if(line.toLowerCase().startsWith("origin: ")) {
-						this.origin = line.substring("Origin:".length()).trim();
-					} else if(line.isEmpty()) {
-						//this.postRequestStr += readLine(in);
-					}
+				} else if(line.toLowerCase().startsWith("content-length: ")) {
+					this.contentLength = line.substring("Content-Length:".length()).trim();
+					System.out.println("content length line: \"" + line + "\"; contentLength header: " + this.contentLength);
+				} else if(line.toLowerCase().startsWith("content-type: ")) {
+					this.contentType = line.substring("Content-Type:".length()).trim();
+				} else if(line.toLowerCase().startsWith("origin: ")) {
+					this.origin = line.substring("Origin:".length()).trim();
 				} else if(!line.isEmpty()) {
 					//if(debug) {
 					println("\t /!\\ Unimplemented header: \"" + line + "\"\r\n\t/___\\");
@@ -611,6 +636,20 @@ public class HTTPClientRequest {
 				}
 			}
 			i++;
+		}
+		if(this.method != null && this.method.equals("POST")) {
+			if(this.contentType != null && this.contentType.contains("multipart/form-data")) {
+				if(this.multiPartFormData == null) {
+					if(this.postRequestData != null && this.postRequestData.length > 0) {
+						this.multiPartFormData = new MultipartFormData(this.postRequestData, this.contentType, this.status, this);
+					} else {
+						System.out.println("Test: POST - Client sent POST data; but the data is null! Wtf? isProxyRequest: " + this.isProxyRequest);
+						System.out.println("contentLength header: " + this.contentLength);
+						System.out.println("contentType header: " + this.contentType);
+						System.out.println("request body data length: " + (this.postRequestData != null ? this.postRequestData.length : -1));
+					}
+				}
+			}
 		}
 		if(this.status != null) {
 			this.status.setStatus("Preparing client request for processing...");
@@ -635,10 +674,21 @@ public class HTTPClientRequest {
 		return this.status;
 	}
 	
-	public final void markCompleted() {
+	public final void markCompleted(String result) {
 		if(this.isCompleted) {
 			return;
 		}
+		if(result != null) {
+			this.result += "\r\n" + result;
+		}
+		if(this.domainDirectory == null || this.domainDirectory.getDisplayLogEntries()) {
+			RequestLog log = new RequestLog(this).setResult(this.result);
+			if(log.seemsComplete()) {
+				log.saveToFile();
+			}
+		}
+		this.result = null;
+		this.domainDirectory = null;
 		if(this.status != null) {
 			this.status.markCompleted();
 			this.status = null;

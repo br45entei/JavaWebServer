@@ -30,10 +30,21 @@ import org.apache.commons.io.FilenameUtils;
 
 /** @author Brian_Entei */
 public class ConsoleThread extends Thread {
-	private boolean						isRunning			= false;
-	public boolean						exitCommandWasRun	= false;
+	private volatile boolean			isRunning			= false;
+	/** Whether or not the exit command was run in the console */
+	public volatile boolean				exitCommandWasRun	= false;
 	
 	protected volatile BufferedReader	br;
+	
+	private volatile boolean			allowConsoleMode	= true;
+	
+	public ConsoleThread(String[] args) {
+		this.allowConsoleMode = (!StringUtils.containsIgnoreCase("noconsole", args) && !StringUtils.containsIgnoreCase("nogui", args));
+	}
+	
+	public final boolean allowConsoleMode() {
+		return this.allowConsoleMode;
+	}
 	
 	@Override
 	public final synchronized void start() {
@@ -41,6 +52,7 @@ public class ConsoleThread extends Thread {
 		super.start();
 	}
 	
+	/** Tells this thread that it should stop running. */
 	public final void stopThread() {
 		this.isRunning = false;
 		try {
@@ -49,14 +61,18 @@ public class ConsoleThread extends Thread {
 		}
 	}
 	
+	private static final void checkInput() {
+		
+	}
+	
 	@Override
 	public final void run() {
-		if(System.console() == null) {
-			LogUtils.setConsoleMode(true);
+		/*if(System.console() == null) {
+			LogUtils.setConsoleMode(this.allowConsoleMode);
 			return;
-		}
+		}*/
 		this.br = new BufferedReader(new InputStreamReader(System.in));
-		LogUtils.setConsoleMode(true);
+		LogUtils.setConsoleMode(this.allowConsoleMode);
 		while(this.isRunning) {
 			try {
 				if(!this.isRunning) {
@@ -70,12 +86,16 @@ public class ConsoleThread extends Thread {
 		LogUtils.setConsoleMode(false);
 	}
 	
-	private int	numOfTimesUserAttemptedToExitWhileShutdownInProgress	= 0x0;
+	private volatile int	numOfTimesUserAttemptedToExitWhileShutdownInProgress	= 0x0;
 	
 	private static final void handleInput(BufferedReader br, ConsoleThread console) throws IOException {
 		handleInput(br.readLine(), console);
 	}
 	
+	/** @param input The input to handle
+	 * @param console The console thread handling the input
+	 * @throws IOException Thrown if there was an error reading further data
+	 *             from the console's standard-in stream */
 	public static final void handleInput(final String input, ConsoleThread console) throws IOException {
 		if(input == null) {
 			return;
@@ -234,7 +254,7 @@ public class ConsoleThread extends Thread {
 			} else {
 				PrintUtil.println("\tCommand usage: \"hideWindow\"");
 			}
-		} else if(command.equalsIgnoreCase("exit")) {
+		} else if(command.equalsIgnoreCase("exit") || command.equalsIgnoreCase("stop")) {
 			if(args.length == 0) {
 				if(!console.exitCommandWasRun && !JavaWebServer.getInstance().isShuttingDown()) {//JavaWebServer.getInstance().shutdown();
 					console.exitCommandWasRun = true;

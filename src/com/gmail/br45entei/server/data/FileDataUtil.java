@@ -15,7 +15,7 @@ import java.util.Arrays;
  * later read from/written to file.
  *
  * @author Brian_Entei */
-public final class FileData implements Closeable {
+public final class FileDataUtil implements Closeable {
 	private final DisposableByteArrayOutputStream	fileData;
 	/** The file's name */
 	public final String								fileName;
@@ -37,7 +37,7 @@ public final class FileData implements Closeable {
 	 * @param fileName The name of the file
 	 * @param contentType The file's content-type(does not decide how the
 	 *            file is written; may be null) */
-	public FileData(byte[] data, String fileName, String contentType) {
+	public FileDataUtil(byte[] data, String fileName, String contentType) {
 		this(fromBytes(data), fileName, contentType);
 	}
 	
@@ -45,7 +45,7 @@ public final class FileData implements Closeable {
 	 * @param fileName The name of the file
 	 * @param contentType The file's content-type(does not decide how the
 	 *            file is written; may be null) */
-	public FileData(DisposableByteArrayOutputStream fileData, String fileName, String contentType) {
+	public FileDataUtil(DisposableByteArrayOutputStream fileData, String fileName, String contentType) {
 		this.fileData = fileData;
 		this.fileName = fileName;
 		this.contentType = contentType;

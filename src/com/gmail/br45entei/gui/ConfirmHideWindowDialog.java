@@ -1,6 +1,3 @@
-/**
- * 
- */
 package com.gmail.br45entei.gui;
 
 import com.gmail.br45entei.JavaWebServer;
@@ -28,8 +25,8 @@ public class ConfirmHideWindowDialog extends Dialog {
 	
 	/** Create the dialog.
 	 * 
-	 * @param parent
-	 * @param style */
+	 * @param parent The parent shell
+	 * @param style The SWT style */
 	public ConfirmHideWindowDialog(Shell parent, int style) {
 		super(parent, style);
 		this.parentShell = parent;

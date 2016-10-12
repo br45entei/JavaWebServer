@@ -167,8 +167,8 @@ public final class CompositeInfo extends Composite {
 					final long secondsRemaining1 = (length - currentData) / bytesPerSecond;
 					final long secondsRemaining2 = (timeTaken / currentData) * (length - currentData);//(TimeTaken.TotalSeconds / totalBytesCopied) * (totalFileSizeToCopy - totalBytesCopied);
 					
-					final long averageSecondsRemaining = (secondsRemaining1 + secondsRemaining2) / 2L;
-					labelStr += "; Estimated Time Remaining: " + averageSecondsRemaining;
+					final double averageSecondsRemaining = ((secondsRemaining1 + secondsRemaining2) / 2L) / 10.0D;
+					labelStr += "; Estimated Time Remaining: " + StringUtils.getElapsedTime(Math.round(averageSecondsRemaining * 1000.0D));
 				}
 			}
 		}

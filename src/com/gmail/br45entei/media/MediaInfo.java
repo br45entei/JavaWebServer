@@ -22,6 +22,7 @@ import org.jaudiotagger.tag.images.Artwork;
 
 /** @author Brian_Entei
  * @see MediaReader */
+@SuppressWarnings("javadoc")
 public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 
 	public final String				bitRate;
@@ -251,7 +252,7 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 							publisher = tagText;
 						} else if(id.equalsIgnoreCase("©too")) {
 							softwareTool = tagText;
-						} else if(id.equals("TEN") || id.equals("TENC") || id.equalsIgnoreCase("©enc")) {
+						} else if(id.equals("TEN") || id.equals("TENC") || id.equalsIgnoreCase("©enc") || id.equalsIgnoreCase("ENCODER")) {
 							encodedBy = tagText;
 						} else if(id.equals("TSSE")) {
 							encoderSettings = tagText;
@@ -488,10 +489,14 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		return rtrn;
 	}
 	
+	/** @return The media source's artwork, if any, or <code>null</code>
+	 *         otherwise. */
 	public final MediaArtwork getAlbumArtwork() {
 		return this.albumArtwork;
 	}
 	
+	/** Closes any opened resources associated with this media(i.e. file handles,
+	 * network streams) */
 	@Override
 	public final void close() {
 		if(this.isClosed) {
@@ -503,10 +508,12 @@ public class MediaInfo implements Closeable {//XXX http://id3.org/id3v2.3.0
 		this.isClosed = true;
 	}
 	
+	/** @return Whether or not this resource has been closed */
 	public final boolean isClosed() {
 		return this.isClosed;
 	}
 	
+	/** @param args System command arguments */
 	public static final void main(String[] args) {
 		if(args.length == 0) {
 			System.out.println("Usage: java.exe -jar jarFile.jar path/to/media File.ext");
