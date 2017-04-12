@@ -13,11 +13,11 @@ import java.util.Map.Entry;
 /** @author Brian_Entei */
 public class MimeTypes {
 	
-	public static final String					DEFAULT_MIME_TYPE	= "application/octet-stream";
+	public static final String DEFAULT_MIME_TYPE = "application/octet-stream";
 	
 	/** A hash map containing common mime types and their associated file
 	 * extensions */
-	public static final HashMap<String, String>	MIME_Types			= new HashMap<>();
+	public static final HashMap<String, String> MIME_Types = new HashMap<>();
 	
 	static {
 		MIME_Types.put(".$323", "text/h323");
@@ -285,8 +285,8 @@ public class MimeTypes {
 		MIME_Types.put(".odp", "application/vnd.oasis.opendocument.presentation");
 		MIME_Types.put(".ods", "application/vnd.oasis.opendocument.spreadsheet");
 		MIME_Types.put(".odt", "application/vnd.oasis.opendocument.text");
+		MIME_Types.put(".ogg", "audio/ogg");//"application/ogg");
 		MIME_Types.put(".oga", "audio/ogg");
-		MIME_Types.put(".ogg", "application/ogg");
 		MIME_Types.put(".ogv", "video/ogg");
 		MIME_Types.put(".ogx", "application/ogg");
 		MIME_Types.put(".old", "application/x-trash");
@@ -901,6 +901,12 @@ public class MimeTypes {
 	/** @param ext The file extension
 	 * @return The resulting mime type */
 	public static final String getMimeTypeForExtension(String ext) {
+		if(ext == null) {
+			return null;
+		}
+		if(!ext.startsWith(".")) {
+			ext = "." + ext;
+		}
 		String mimeType = null;
 		for(Entry<String, String> entry : MIME_Types.entrySet()) {
 			if(entry.getKey().equalsIgnoreCase(ext)) {

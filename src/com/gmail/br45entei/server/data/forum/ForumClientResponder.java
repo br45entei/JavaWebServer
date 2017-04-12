@@ -1,27 +1,28 @@
 package com.gmail.br45entei.server.data.forum;
 
+import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_200;
+import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_404;
+import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_501;
+
 import com.gmail.br45entei.JavaWebServer;
+import com.gmail.br45entei.server.ClientConnection;
 import com.gmail.br45entei.server.HTTPClientRequest;
 import com.gmail.br45entei.server.HTTPServerResponse;
+import com.gmail.br45entei.server.HTTPStatusCodes;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.util.AddressUtil;
-import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.StringUtils;
+import com.gmail.br45entei.util.writer.DualPrintWriter;
+import com.gmail.br45entei.util.writer.UnlockedOutputStreamWriter;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import org.apache.commons.io.FilenameUtils;
-
-import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_200;
-import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_404;
-import static com.gmail.br45entei.server.HTTPStatusCodes.HTTP_501;
 
 /** @author Brian_Entei */
 public final class ForumClientResponder {
@@ -32,7 +33,7 @@ public final class ForumClientResponder {
 	 * @param response The response that the server will send
 	 * @return Whether or not this method did anything
 	 * @throws IOException Thrown if an I/O exception occurs */
-	public static final boolean HandleRequest(final Socket s, final DomainDirectory domainDirectory, final HTTPClientRequest request, final HTTPServerResponse response) throws IOException {
+	public static final boolean HandleRequest(final Socket s, final ClientConnection reuse, final DomainDirectory domainDirectory, final HTTPClientRequest request, final HTTPServerResponse response) throws IOException {
 		if(s == null || s.isClosed() || domainDirectory == null || request == null || response == null) {
 			return false;
 		}
@@ -50,14 +51,13 @@ public final class ForumClientResponder {
 				response.setHeader("Content-Length", "0");
 				response.setResponse((String) null);//XXX Maybe find out what content is sent with the OPTIONS protocol(Like 'httpd/unix-directory')?
 				response.sendToClient(s, false);
-				s.close();
 				return true;
 			}
 			String requestedFilePath = FilenameUtils.normalize(StringUtils.replaceOnce(request.requestedFilePath, "/" + forum.getName(), ""));
 			if(requestedFilePath == null || requestedFilePath.equals("/")) {
 				requestedFilePath = "";
 			}
-			PrintUtil.println("Request path for forum: \"" + requestedFilePath + "\";");
+			reuse.println("Request path for forum: \"" + requestedFilePath + "\";");
 			
 			response.setStatusCode(HTTP_200);//XXX TODO FIXME Make me!
 			response.setHeader("Vary", "Accept-Encoding");
@@ -72,13 +72,13 @@ public final class ForumClientResponder {
 				if(requestedFilePath.equals("/")) {
 					requestedFilePath = "";
 				}
-				PrintUtil.println("Request path for board: \"" + requestedFilePath + "\";");
+				reuse.println("Request path for board: \"" + requestedFilePath + "\";");
 				if(topic != null) {
 					requestedFilePath = StringUtils.replaceOnce(StringUtils.replaceOnce(requestedFilePath, "/topic/", ""), topic.getTitleInURL(), "");
 					if(requestedFilePath.equals("/")) {
 						requestedFilePath = "";
 					}
-					PrintUtil.println("Request path for topic: \"" + requestedFilePath + "\";");
+					reuse.println("Request path for topic: \"" + requestedFilePath + "\";");
 					response.setStatusCode(HTTP_501);
 					response.setResponse("Topic pages are not yet implemented.\r\n");
 					response.appendResponse("Topic title: " + topic.getTitle() + "\r\n");
@@ -136,15 +136,15 @@ public final class ForumClientResponder {
 					File requestedFile = new File(forum.getSaveFolder(), FilenameUtils.getName(FilenameUtils.getFullPathNoEndSeparator(request.requestedFilePath + File.separatorChar)));
 					if(requestedFile.exists() && requestedFile.isFile()) {
 						try {
+							@SuppressWarnings("resource")
 							OutputStream outStream = s.getOutputStream();
-							PrintWriter out = new PrintWriter(new OutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
+							@SuppressWarnings("resource")
+							DualPrintWriter out = new DualPrintWriter(new UnlockedOutputStreamWriter(outStream, StandardCharsets.UTF_8), true);
 							out.println("HTTP/1.1 200 OK");
-							JavaWebServer.sendFileToClient(out, outStream, requestedFile, request.method, clientAddress, domainDirectory.getNetworkMTU(), false);
+							JavaWebServer.sendFileToClient(out, outStream, reuse, HTTPStatusCodes.HTTP_200, requestedFile, request.method, clientAddress, domainDirectory.getNetworkMTU(), false);
 							outStream.flush();
-							outStream.close();
-							s.close();
 						} catch(Throwable e) {
-							PrintUtil.printThrowable(e);
+							reuse.printThrowable(e);
 						}
 						return true;
 					}
@@ -169,8 +169,7 @@ public final class ForumClientResponder {
 								+ "\t\t<hr><string><b>" + request.requestedFilePath + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress + "</b></string>\r\n"//
 								+ "\t</body>\r\n</html>");
 					} catch(Throwable e) {
-						PrintUtil.printThrowable(e);
-						s.close();
+						reuse.printThrowable(e);
 						return true;
 					}
 				}
@@ -234,11 +233,9 @@ public final class ForumClientResponder {
 					+ "\t\t<hr><string><b>" + request.requestedFilePath + " - " + request.host + (request.host.endsWith(":" + s.getLocalPort()) ? "" : ":" + s.getLocalPort()) + " --&gt; " + clientAddress + "</b></string>\r\n"//
 					+ "\t</body>\r\n</html>");
 			response.sendToClient(s, true);
-			s.close();
 			return true;*/
 		}
 		response.sendToClient(s, request.method.equalsIgnoreCase("GET"));
-		s.close();
 		return true;
 	}
 	

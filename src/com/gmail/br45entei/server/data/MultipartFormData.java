@@ -2,8 +2,10 @@ package com.gmail.br45entei.server.data;
 
 import com.gmail.br45entei.data.DisposableByteArrayInputStream;
 import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
-import com.gmail.br45entei.server.ClientRequestStatus;
+import com.gmail.br45entei.gui.Main;
+import com.gmail.br45entei.server.ClientStatus;
 import com.gmail.br45entei.server.HTTPClientRequest;
+import com.gmail.br45entei.util.LogUtils;
 import com.gmail.br45entei.util.PrintUtil;
 
 import java.io.ByteArrayInputStream;
@@ -15,20 +17,22 @@ import java.util.regex.Pattern;
 /** @author Brian_Entei */
 public final class MultipartFormData implements Closeable {
 	
-	private volatile ClientRequestStatus	status;
+	private volatile ClientStatus status;
 	
 	/** The content type used to initialize this instantiation(must contain the
 	 * string {@code "multipart/form-data"} and a {@code "boundary"} data value,
 	 * ignoring case) */
-	public final String						contentType;
+	public final String contentType;
 	
-	/** A HashMap containing any form data retrieved while parsing the input data */
-	public final HashMap<String, String>	formData	= new HashMap<>();
-	/** An ArrayList containing any {@link FileDataUtil} instances that may have been
+	/** A HashMap containing any form data retrieved while parsing the input
+	 * data */
+	public final HashMap<String, String> formData = new HashMap<>();
+	/** An ArrayList containing any {@link FileDataUtil} instances that may have
+	 * been
 	 * created while parsing the input data
 	 * 
 	 * @see #close() */
-	public final ArrayList<FileDataUtil>		fileData	= new ArrayList<>();
+	public final ArrayList<FileDataUtil> fileData = new ArrayList<>();
 	
 	/** @param data The data to parse
 	 * @param contentType The content type sent from the client(must include the
@@ -39,7 +43,7 @@ public final class MultipartFormData implements Closeable {
 	 *             "multipart/form-data" or if the boundary value was not
 	 *             specified
 	 * @throws OutOfMemoryError Thrown if the data is too large */
-	public MultipartFormData(byte[] data, String contentType, ClientRequestStatus status) throws IllegalArgumentException, OutOfMemoryError {
+	public MultipartFormData(byte[] data, String contentType, ClientStatus status) throws IllegalArgumentException, OutOfMemoryError {
 		this(data, contentType, status, null);
 	}
 	
@@ -48,11 +52,13 @@ public final class MultipartFormData implements Closeable {
 	 *            "multipart/form-data" content type and the boundary data
 	 *            value)
 	 * @param status The status that will be updated as the data is parsed
+	 * @param request
 	 * @throws IllegalArgumentException Thrown if the content type was not
 	 *             "multipart/form-data" or if the boundary value was not
 	 *             specified
 	 * @throws OutOfMemoryError Thrown if the data is too large */
-	public MultipartFormData(byte[] data, String contentType, ClientRequestStatus status, HTTPClientRequest request) throws IllegalArgumentException, OutOfMemoryError {
+	@SuppressWarnings("resource")
+	public MultipartFormData(byte[] data, String contentType, ClientStatus status, HTTPClientRequest request) throws IllegalArgumentException, OutOfMemoryError {
 		this.status = status;
 		this.contentType = contentType;
 		if(!this.contentType.toLowerCase().contains("multipart/form-data")) {
@@ -118,7 +124,7 @@ public final class MultipartFormData implements Closeable {
 				PrintUtil.println((wasPrevLineEmpty ? "data" : "line") + ": \"" + line + "\";");
 			}
 			if(line.toLowerCase().startsWith("content-disposition: ")) {
-				contentDisposition = line.substring("content-disposition: ".length());
+				contentDisposition = line.substring("Content-Disposition: ".length());
 				String[] split1 = contentDisposition.split(Pattern.quote(";"));
 				for(String s : split1) {
 					status.markReadTime();
@@ -142,9 +148,7 @@ public final class MultipartFormData implements Closeable {
 								isFormData = true;
 								name = val;
 							} else {
-								if(HTTPClientRequest.debug) {
-									PrintUtil.println("Unimplemented key: \"" + key + "\";");
-								}
+								LogUtils.ORIGINAL_SYSTEM_ERR.println("Unimplemented key: \"" + key + "\";");
 							}
 						}
 					}
@@ -152,7 +156,7 @@ public final class MultipartFormData implements Closeable {
 			} else if(line.toLowerCase().startsWith("content-type: ")) {
 				fileContentType = line.substring("content-type: ".length());
 			} else if(isLineEmpty && isFile) {//hopefully we've found the data part of the form data here
-				while(true) {
+				while(Main.isRunning()) {
 					status.setStatus("Collecting current file data...");
 					status.markReadTime();
 					in.mark(0);//(the zero here does nothing according to the javadocs for ByteArrayInputStream)
@@ -193,40 +197,34 @@ public final class MultipartFormData implements Closeable {
 						}
 					}
 					in.reset();
-					HTTPClientRequest.addToDebugFile(new byte[] {rb});
+					HTTPClientRequest.addToDebugFile(new byte[] {rb}, false);
 					fileData.write(r);//...and then write that data here
 					status.markReadTime();
 				}
-				if(fileContentType != null && fileData.size() != 0 && fileName != null && !fileName.isEmpty()) {
+				if(fileContentType != null && fileData.size() != 0 && fileName != null) {
 					status.setStatus("Storing file data for later use...");
 					this.fileData.add(new FileDataUtil(fileData, fileName, fileContentType));
 					fileData = new DisposableByteArrayOutputStream();
-				} else /*if(HTTPClientRequest.debug)*/{
-					PrintUtil.printlnNow("\t /!\\Failed to record collected file data: one of the following is either null or empty(meaning \"0\"): fileContentType: \"" + fileContentType + "\"; fileData.size(): \"" + fileData.size() + "\"; fileName: \"" + fileName + "\";\r\n\t/___\\");
+				} else {//if(HTTPClientRequest.debug) {
+					LogUtils.ORIGINAL_SYSTEM_ERR.println("\t /!\\Failed to record collected file data: one of the following is either null or empty(meaning \"0\"): fileContentType: \"" + fileContentType + "\"; fileData.size(): \"" + fileData.size() + "\"; fileName: \"" + fileName + "\";\r\n\t/___\\");
 				}
-				/*contentDisposition = null;
-				fileName = null;
-				fileContentType = null;
-				isFile = false;*/
 			} else if(wasPrevLineEmpty && isFormData) {//if(!isLineEmpty && isFormData) {
 				value = line;
 				if(HTTPClientRequest.debug) {
-					PrintUtil.println("Set form value to: \"" + value + "\"!");
+					LogUtils.ORIGINAL_SYSTEM_OUT.println("Set form value to: \"" + value + "\"!");
 				}
 			} else if(!isLineEmpty) {
 				if(HTTPClientRequest.debug) {
-					PrintUtil.println("Unimplemented line: \"" + line + "\"!");
+					LogUtils.ORIGINAL_SYSTEM_OUT.println("Unimplemented line: \"" + line + "\"!");
 				}
 			}
 			if(isFormData && name != null && value != null) {
 				status.setStatus("");
 				this.formData.put(name, value);
-				if(HTTPClientRequest.debug) {
-					PrintUtil.println("name: \"" + name + "\"; value: \"" + value + "\";");
-				}
-				/*isFormData = false;
-				name = null;
-				value = null;*/
+				LogUtils.ORIGINAL_SYSTEM_OUT.println("name: \"" + name + "\"; value: \"" + value + "\";");
+				//isFormData = false;
+				//name = null;
+				//value = null;
 			}
 			wasPrevLineEmpty = isLineEmpty;
 			status.markReadTime();
@@ -242,8 +240,10 @@ public final class MultipartFormData implements Closeable {
 	/** Reads the next two bytes, constructs a new String via<br>
 	 * <b>{@code new} {@link String#String(byte[])}</b>, and then checks to see
 	 * if it is equal<br>
-	 * to {@code "--"}. If so, proceeds to read {@code boundary.length()} bytes<br>
-	 * and convert them to String and then checks if that String is equal to the<br>
+	 * to {@code "--"}. If so, proceeds to read {@code boundary.length()}
+	 * bytes<br>
+	 * and convert them to String and then checks if that String is equal to
+	 * the<br>
 	 * boundary.<br>
 	 * Otherwise returns false.<br>
 	 * <br>
@@ -259,7 +259,7 @@ public final class MultipartFormData implements Closeable {
 	 * @return Whether or not the next byte that is read in the given
 	 *         ByteArrayInputStream is the beginning of the next
 	 *         multipart/form-data boundary */
-	public static final boolean nextByteIsNextBoundary(ByteArrayInputStream in, String boundary, ClientRequestStatus status) {
+	public static final boolean nextByteIsNextBoundary(ByteArrayInputStream in, String boundary, ClientStatus status) {
 		if(status.isPaused()) {
 			while(status.isPaused()) {
 				try {
@@ -285,7 +285,8 @@ public final class MultipartFormData implements Closeable {
 		return false;
 	}
 	
-	/** Clears the {@link #fileData} ArrayList and the {@link #formData} HashMap */
+	/** Clears the {@link #fileData} ArrayList and the {@link #formData}
+	 * HashMap */
 	@Override
 	public final void close() {
 		for(FileDataUtil data : this.fileData) {
@@ -293,12 +294,11 @@ public final class MultipartFormData implements Closeable {
 		}
 		this.fileData.clear();
 		this.formData.clear();
-		this.status.removeFromList();
 		this.status = null;
 		System.gc();
 	}
 	
-	private static final String readLine(ByteArrayInputStream in, ClientRequestStatus status) {
+	private static final String readLine(ByteArrayInputStream in, ClientStatus status) {
 		String rtrn = "";
 		byte read;
 		while((read = Integer.valueOf(in.read()).byteValue()) != -1) {
@@ -309,7 +309,7 @@ public final class MultipartFormData implements Closeable {
 			}
 			byte[] r0 = new byte[] {read};
 			String r = new String(r0);
-			HTTPClientRequest.addToDebugFile(r0);
+			HTTPClientRequest.addToDebugFile(r0, false);
 			if(r.equals("\n")) {
 				break;
 			}

@@ -3,22 +3,25 @@ package com.gmail.br45entei.gui;
 import com.gmail.br45entei.ConsoleThread;
 import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.ResourceFactory;
-import com.gmail.br45entei.server.ClientInfo;
-import com.gmail.br45entei.server.ClientRequestStatus;
+import com.gmail.br45entei.server.ClientConnection;
+import com.gmail.br45entei.server.ClientStatus;
 import com.gmail.br45entei.swt.Functions;
 import com.gmail.br45entei.swt.Response;
 import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.LogUtils;
-import com.gmail.br45entei.util.PrintUtil;
+import com.gmail.br45entei.util.StringUtil;
 import com.gmail.br45entei.util.StringUtils;
 
-import java.util.ArrayList;
+import java.io.PrintStream;
+import java.lang.Thread.State;
+import java.nio.charset.StandardCharsets;
 
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.ScrolledComposite;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
@@ -34,47 +37,50 @@ import org.eclipse.wb.swt.SWTResourceManager;
 
 /** @author Brian_Entei */
 public class Main {
-	protected static boolean	enableWindowThread	= true;
+	
+	protected static volatile boolean isRunning = false;
+	protected static volatile Thread swtThread;
+	protected static volatile long lastMainLoopTime = -1L;
+	protected static boolean enableWindowThread = true;
 	
 	//protected Display			display;
-	protected Shell				shell;
-	private static Main			instance;
-	private Thread				currentThread;
-	protected Thread			serverThread;
-	protected ConsoleThread		consoleThread;
+	protected volatile Shell shell;
+	private static Main instance;
+	protected static volatile Thread serverThread;
+	protected static volatile ConsoleThread consoleThread;
+	protected static volatile boolean isShutdownPopupShown = false;
 	
-	protected boolean			isADialogOpen		= false;
-	
-	private boolean				isEnabled			= true;
-	
-	private final ConsoleWindow	consoleWindow;
-	private boolean				showConsoleWindow	= false;
-	
-	/** Whether or not the window is supposed to be displayed. */
-	public boolean				showWindow			= true;
-	private Label				lblActiveConnections;
-	private ScrolledComposite	outgoingScrollArea;
-	private Composite			outgoingActiveConnections;
-	private ScrolledComposite	incomingScrollArea;
-	private Composite			incomingActiveConnections;
-	private TabFolder			tabFolder;
-	private TabItem				tbOutgoingConnections;
-	private TabItem				tbtmIncomingConnections;
-	private TabItem				tbtmProxyConnections;
-	private Label				lblNoOutgoingConnections;
-	private Label				lblNoIncomingConnections;
-	private ScrolledComposite	proxyScrollArea;
-	private Composite			activeProxyConnections;
-	private Label				lblNoProxyConnections;
-	
-	/** @return The main Thread */
-	public final Thread getThread() {
-		return this.currentThread;
+	public static final Thread getSWTThread() {
+		return swtThread;
 	}
 	
+	protected volatile boolean isADialogOpen = false;
+	
+	private static volatile boolean isEnabled = true;
+	
+	private final ConsoleWindow consoleWindow;
+	private volatile boolean showConsoleWindow = false;
+	
+	/** Whether or not the window is supposed to be displayed. */
+	public volatile boolean showWindow = true;
+	private Label lblActiveConnections;
+	private ScrolledComposite outgoingScrollArea;
+	private Composite outgoingActiveConnections;
+	private ScrolledComposite incomingScrollArea;
+	private Composite incomingActiveConnections;
+	private TabFolder tabFolder;
+	private TabItem tbOutgoingConnections;
+	private TabItem tbtmIncomingConnections;
+	private TabItem tbtmProxyConnections;
+	private Label lblNoOutgoingConnections;
+	private Label lblNoIncomingConnections;
+	private ScrolledComposite proxyScrollArea;
+	private Composite activeProxyConnections;
+	private Label lblNoProxyConnections;
+	
 	/** @return The Console Thread */
-	public final ConsoleThread getConsoleThread() {
-		return this.consoleThread;
+	public static final ConsoleThread getConsoleThread() {
+		return consoleThread;
 	}
 	
 	/** @return The instantiation of {@link #Main} */
@@ -83,8 +89,8 @@ public class Main {
 	}
 	
 	/** @return Whether or not the server is enabled */
-	public final boolean isEnabled() {
-		return this.isEnabled;
+	public static final boolean isEnabled() {
+		return isEnabled;
 	}
 	
 	/** @return Whether or not the SWT console window is supposed to be open */
@@ -97,25 +103,95 @@ public class Main {
 		return this.consoleWindow;
 	}
 	
+	public static final Image[] getDefaultShellImages() {
+		return new Image[] {SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-16x16.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-32x32.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-64x64.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-128x128.png")};
+	}
+	
+	public final Image[] getShellImages() {
+		return this.shell.getImages();
+	}
+	
+	private static final void swtThreadHangupMonitor() {
+		final Thread monitorThatCrap = new Thread("SWTThreadMonitoringThread") {
+			@Override
+			public final void run() {
+				if(!isRunning) {
+					while(!isRunning) {
+						Functions.sleep();
+					}
+				}
+				boolean printedRecentHang = false;
+				long hangStartTime = -1L;
+				final PrintStream err = LogUtils.ORIGINAL_SYSTEM_ERR;
+				String lastGoodStackTrace = "";
+				while(isRunning) {
+					if(swtThread != null) {//happened only once, but it could happen again...
+						State state = swtThread.getState();
+						if(state != State.TERMINATED) {
+							lastGoodStackTrace = StringUtil.stackTraceElementsToStr(swtThread.getStackTrace(), "\n");
+						}
+						if(lastMainLoopTime != -1L && (System.currentTimeMillis() - lastMainLoopTime) >= 3000L) {//swt thread has hung longer than three seconds!!!1
+							if(printedRecentHang) {
+								Functions.sleep();
+								continue;
+							}
+							hangStartTime = lastMainLoopTime;
+							printedRecentHang = true;
+							String stackTrace = StringUtil.stackTraceElementsToStr(swtThread.getStackTrace());
+							if(stackTrace.trim().isEmpty()) {
+								stackTrace = lastGoodStackTrace;
+							}
+							//if(!stackTrace.contains("     at org.eclipse.swt.widgets.Display.windowProc(Unknown Source)")) {
+							//State state = swtThread.getState();
+							err.println(StringUtil.getElapsedTimeTraditional(System.currentTimeMillis() - hangStartTime, true) + " ago the swt thread appears to have hung up!");
+							err.println("Thread state: " + state.name());
+							err.println("Stack trace:\r\n\r\njava.lang.Thread.getStackTrace():\r\n" + stackTrace);
+							//} else {
+							//	System.err.println("Yo! You're holding up the swt thread by keeping the window held down like that! rawr!");
+							//}
+						} else {
+							printedRecentHang = false;
+							hangStartTime = -1L;
+						}
+					}
+					Functions.sleep();
+				}
+			}
+		};
+		monitorThatCrap.setDaemon(true);
+		monitorThatCrap.start();
+	}
+	
+	protected static final boolean isServerShuttingDown() {
+		return JavaWebServer.isShuttingDown() || (getSWTThread() == null || getSWTThread().getState() == State.TERMINATED) || !isEnabled();
+	}
+	
 	/** Launch the application.
 	 * 
 	 * @param args System command arguments */
 	public static void main(final String[] args) {
+		System.setProperty("jdk.tls.ephemeralDHKeySize", JavaWebServer.ephemeralDHKeySize);
+		System.setProperty("https.protocols", JavaWebServer.enabledTLSProtocols);
+		System.setProperty("jdk.tls.client.protocols", JavaWebServer.enabledTLSProtocols);
+		System.setProperty("jdk.tls.disabledAlgorithms", JavaWebServer.TLS_DisabledAlgorithms);
 		ResourceFactory.getResourceFromStreamAsFile(JavaWebServer.rootDir, "legal/LICENSE.txt");
 		LogUtils.replaceSystemOut();
 		LogUtils.replaceSystemErr();
 		try {
 			Main window = new Main(args);
-			instance = window;
-			PrintUtil.printlnNow(JavaWebServer.TERMINAL_NOTICE);
+			//LogUtils.getOut().print("Test Line! 123\n456\n");
+			LogUtils.getOut().write(JavaWebServer.TERMINAL_NOTICE.getBytes(StandardCharsets.UTF_8));
+			//LogUtils.getOut().flush();
+			isRunning = true;
 			if(enableWindowThread) {
+				swtThreadHangupMonitor();
 				window.showWindow = !StringUtils.containsIgnoreCase("nogui", args);
 				window.open(args);
 			} else {
-				window.serverThread.start();
-				window.consoleThread.start();
+				serverThread.start();
+				consoleThread.start();
 				while(JavaWebServer.serverActive()) {
-					window.exitCheck();
+					exitCheck();
 					CodeUtil.sleep(10L);
 				}
 			}
@@ -126,6 +202,7 @@ public class Main {
 	
 	private Main(final String[] args) {
 		instance = this;
+		swtThread = Thread.currentThread();
 		this.showConsoleWindow = (!StringUtils.containsIgnoreCase("noconsole", args) && !StringUtils.containsIgnoreCase("nogui", args)) && (System.console() == null || StringUtils.containsIgnoreCase("console", args));
 		this.consoleWindow = new ConsoleWindow();
 		if(this.showConsoleWindow) {
@@ -135,13 +212,17 @@ public class Main {
 			LogUtils.setTertiaryOutStream(this.consoleWindow.out);
 			LogUtils.setTertiaryErrStream(this.consoleWindow.out);
 		}
-		this.serverThread = new Thread(new Runnable() {
+		serverThread = new Thread(new Runnable() {
 			@Override
 			public void run() {
 				JavaWebServer.sysMain(args);
 			}
 		}, JavaWebServer.ThreadName);
-		this.consoleThread = new ConsoleThread(args);
+		consoleThread = new ConsoleThread(args);
+	}
+	
+	public static final boolean isRunning() {
+		return isRunning;
 	}
 	
 	/** Open the window.
@@ -156,10 +237,10 @@ public class Main {
 			this.shell.open();
 		}
 		this.shell.layout();
-		this.serverThread.start();
-		this.consoleThread.start();
+		serverThread.start();
+		consoleThread.start();
 		while(!this.shell.isDisposed()) {
-			if(!this.isEnabled) {
+			if(!isEnabled()) {
 				break;
 			}
 			this.runLoop();
@@ -168,6 +249,21 @@ public class Main {
 			this.shell.dispose();
 		}
 		System.out.println("End of main window thread.");
+		if(isServerShuttingDown() && JavaWebServer.isRunning()) {
+			JavaWebServer.shutdown();
+		}
+	}
+	
+	protected final void runLoopNoWindow() {
+		if(Thread.currentThread() != getSWTThread()) {
+			Functions.sleep();
+			return;
+		}
+		if(this.shell.isDisposed()) {
+			return;
+		}
+		this.runClock();
+		this.updateUI();
 	}
 	
 	/** Runs the main SWT update loop */
@@ -182,10 +278,11 @@ public class Main {
 		}
 	}
 	
-	protected final void exitCheck() {
-		if(this.consoleThread.exitCommandWasRun) {
-			this.consoleThread.exitCommandWasRun = false;
-			JavaWebServer.getInstance().shutdown();
+	protected static final void exitCheck() {
+		lastMainLoopTime = System.currentTimeMillis();
+		if(consoleThread.exitCommandWasRun) {
+			consoleThread.exitCommandWasRun = false;
+			JavaWebServer.shutdown();
 		}
 	}
 	
@@ -195,7 +292,7 @@ public class Main {
 		if(this.shell.isDisposed()) {
 			return;
 		}
-		this.exitCheck();
+		exitCheck();
 		if(this.shell.isVisible()) {
 			if(!this.shell.getDisplay().readAndDispatch()) {
 				CodeUtil.sleep(1L);//display.sleep();
@@ -227,142 +324,145 @@ public class Main {
 			}
 		}
 		if(!this.shell.isDisposed()) {
-			ArrayList<ClientInfo> clientInfos = getCurrentOutgoingClientInfos();
-			boolean ranClock = false;
-			for(ClientInfo info : clientInfos) {
-				if(info != null) {
-					this.getCompositeForOutgoingConnection(info).isInList = true;//updates the composite and it's children.
-					ranClock = true;
+			try {
+				//ArrayList<ClientStatus> clientInfos = getCurrentOutgoingClientInfos();
+				boolean ranClock = false;
+				for(ClientConnection connection : ClientConnection.getOutgoingConnections()) {
+					//if(info != null && JavaWebServer.isConnected(info.getClient())) {
+					CompositeInfo cInfo = this.getCompositeForOutgoingConnection(connection.status);
+					if(cInfo != null) {
+						cInfo.isInList = true;//updates the composite and it's children.
+						ranClock = true;
+					} else {
+						CodeUtil.sleep(4L);
+					}
+					//} else {
+					//	CodeUtil.sleep(4L);
+					//}
 				}
-			}
-			final boolean noActiveConnections = this.outgoingActiveConnections.getChildren().length <= 1;//There's always a label in there, so 1 instead of zero
-			if(noActiveConnections) {
-				if(!this.lblNoOutgoingConnections.isVisible()) {
-					this.lblNoOutgoingConnections.setVisible(true);
-				}
-			} else {
-				if(this.lblNoOutgoingConnections.isVisible()) {
-					this.lblNoOutgoingConnections.setVisible(false);
-				}
-				for(Control control : this.outgoingActiveConnections.getChildren()) {
-					if(control instanceof CompositeInfo) {
-						CompositeInfo info = (CompositeInfo) control;
-						if(!info.isInList) {
-							info.dispose();
-						} else {
-							info.isInList = false;
+				final boolean noActiveConnections = this.outgoingActiveConnections.getChildren().length <= 1;//There's always a label in there, so 1 instead of zero
+				if(noActiveConnections) {
+					if(!this.lblNoOutgoingConnections.isVisible()) {
+						this.lblNoOutgoingConnections.setVisible(true);
+					}
+				} else {
+					if(this.lblNoOutgoingConnections.isVisible()) {
+						this.lblNoOutgoingConnections.setVisible(false);
+					}
+					for(Control control : this.outgoingActiveConnections.getChildren()) {
+						if(control instanceof CompositeInfo) {
+							CompositeInfo info = (CompositeInfo) control;
+							if(!info.isInList) {
+								info.dispose();
+							} else {
+								info.isInList = false;
+							}
 						}
 					}
 				}
-			}
-			ArrayList<ClientRequestStatus> clientRequestStatuses = getCurrentIncomingClientInfos();
-			for(ClientRequestStatus info : clientRequestStatuses) {
-				if(info != null) {
-					CompositeInfo cInfo = this.getCompositeForConnection(info, this.incomingActiveConnections);
+				//ArrayList<ClientStatus> incomingClientStatuses = getCurrentIncomingClientInfos();
+				for(ClientConnection connection : ClientConnection.getIncomingConnections()) {
+					CompositeInfo cInfo = this.getCompositeForConnection(connection.status, this.incomingActiveConnections);
 					if(cInfo != null) {
 						cInfo.isInList = true;
 						ranClock = true;
 					} else {
 						CodeUtil.sleep(4L);
 					}
+				}
+				final boolean noActiveIncomingConnections = this.incomingActiveConnections.getChildren().length <= 1;
+				if(noActiveIncomingConnections) {
+					if(!this.lblNoIncomingConnections.isVisible()) {
+						this.lblNoIncomingConnections.setVisible(true);
+					}
 				} else {
-					CodeUtil.sleep(8L);
-				}
-			}
-			final boolean noActiveIncomingConnections = this.incomingActiveConnections.getChildren().length <= 1;
-			if(noActiveIncomingConnections) {
-				if(!this.lblNoIncomingConnections.isVisible()) {
-					this.lblNoIncomingConnections.setVisible(true);
-				}
-			} else {
-				if(this.lblNoIncomingConnections.isVisible()) {
-					this.lblNoIncomingConnections.setVisible(false);
-				}
-				for(Control control : this.incomingActiveConnections.getChildren()) {
-					if(control instanceof CompositeInfo) {
-						CompositeInfo info = (CompositeInfo) control;
-						if(!info.isInList) {
-							info.dispose();
-						} else {
-							info.isInList = false;
+					if(this.lblNoIncomingConnections.isVisible()) {
+						this.lblNoIncomingConnections.setVisible(false);
+					}
+					for(Control control : this.incomingActiveConnections.getChildren()) {
+						if(control instanceof CompositeInfo) {
+							CompositeInfo info = (CompositeInfo) control;
+							if(!info.isInList) {
+								info.dispose();
+							} else {
+								info.isInList = false;
+							}
 						}
 					}
 				}
-			}
-			ArrayList<ClientRequestStatus> clientProxyStatuses = getCurrentProxyClientInfos();
-			for(ClientRequestStatus info : clientProxyStatuses) {
-				if(info != null) {
-					CompositeInfo cInfo = this.getCompositeForConnection(info, this.activeProxyConnections);
+				//ArrayList<ClientConnection> clientProxyConnections = getCurrentProxyClientInfos();
+				for(ClientConnection connection : ClientConnection.getProxyConnections()) {
+					CompositeInfo cInfo = this.getCompositeForConnection(connection.status, this.activeProxyConnections);
 					if(cInfo != null) {
 						cInfo.isInList = true;
 						ranClock = true;
 					} else {
 						CodeUtil.sleep(4L);
 					}
+				}
+				final boolean noActiveProxyConnections = this.activeProxyConnections.getChildren().length <= 1;
+				if(noActiveProxyConnections) {
+					if(!this.lblNoProxyConnections.isVisible()) {
+						this.lblNoProxyConnections.setVisible(true);
+					}
 				} else {
-					CodeUtil.sleep(8L);
-				}
-			}
-			final boolean noActiveProxyConnections = this.activeProxyConnections.getChildren().length <= 1;
-			if(noActiveProxyConnections) {
-				if(!this.lblNoProxyConnections.isVisible()) {
-					this.lblNoProxyConnections.setVisible(true);
-				}
-			} else {
-				if(this.lblNoProxyConnections.isVisible()) {
-					this.lblNoProxyConnections.setVisible(false);
-				}
-				for(Control control : this.activeProxyConnections.getChildren()) {
-					if(control instanceof CompositeInfo) {
-						CompositeInfo info = (CompositeInfo) control;
-						if(!info.isInList) {
-							info.dispose();
-						} else {
-							info.isInList = false;
+					if(this.lblNoProxyConnections.isVisible()) {
+						this.lblNoProxyConnections.setVisible(false);
+					}
+					for(Control control : this.activeProxyConnections.getChildren()) {
+						if(control instanceof CompositeInfo) {
+							CompositeInfo info = (CompositeInfo) control;
+							if(!info.isInList) {
+								info.dispose();
+							} else {
+								info.isInList = false;
+							}
 						}
 					}
 				}
+				if(!ranClock) {
+					this.runClock();//Prevents the window from freezing after being resized
+				}
+				
+				final int numOfOutgoingComposites = getNumOfCompositeInfosInComposite(this.outgoingActiveConnections);
+				final int numOfIncomingComposites = getNumOfCompositeInfosInComposite(this.incomingActiveConnections);
+				final int numOfProxyComposites = getNumOfCompositeInfosInComposite(this.activeProxyConnections);
+				
+				final String newOutgoingText = "Outgoing Connections" + (numOfOutgoingComposites > 0 ? "[" + numOfOutgoingComposites + "]" : "");
+				final String newIncomingText = "Incoming Connections" + (numOfIncomingComposites > 0 ? "[" + numOfIncomingComposites + "]" : "");
+				final String newProxyText = JavaWebServer.isProxyServerEnabled() ? "Proxy Connections" + (numOfProxyComposites > 0 ? "[" + numOfProxyComposites + "]" : "") : "(Proxy Server Disabled)";
+				if(!this.tbOutgoingConnections.getText().equals(newOutgoingText)) {
+					this.tbOutgoingConnections.setText(newOutgoingText);
+				}
+				if(!this.tbtmIncomingConnections.getText().equals(newIncomingText)) {
+					this.tbtmIncomingConnections.setText(newIncomingText);
+				}
+				if(!this.tbtmProxyConnections.getText().equals(newProxyText)) {
+					this.tbtmProxyConnections.setText(newProxyText);
+				}
+				
+				this.tabFolder.setSize(this.shell.getSize().x - 23, this.shell.getSize().y - 124);
+				this.outgoingScrollArea.setSize(this.tabFolder.getSize().x - 10, this.tabFolder.getSize().y - 30);//this.shell.getSize().x - 33, this.shell.getSize().y - 154);//this.shell.getSize().x - 23, this.shell.getSize().y - 124);//...y - 118);
+				this.incomingScrollArea.setSize(this.tabFolder.getSize().x - 10, this.tabFolder.getSize().y - 30);
+				this.proxyScrollArea.setSize(this.tabFolder.getSize().x - 10, this.tabFolder.getSize().y - 30);
+				//this.activeConnections.setSize(422, 10 + (this.connectionHeight * getCurrentClientInfos().size()));//this.activeConnections.setBounds(/*10, 64*/0, 0, 422, /*642 + */10 + (this.connectionHeight * getCurrentClientInfos().size()));
+				
+				final int width = this.tabFolder.getSize().x - 30;//this.shell.getSize().x - 20;
+				final int newWidth = width < 415 ? 415 : width;//width < 420 ? 420 : width;
+				this.outgoingActiveConnections.setSize(noActiveConnections ? width : newWidth, 20 + (CompositeInfo.height * ClientConnection.getOutgoingConnections().size()));//this.outgoingActiveConnections.setSize(noActiveConnections ? width : newWidth, 20 + (CompositeInfo.height * getCurrentOutgoingClientInfos().size()));
+				this.incomingActiveConnections.setSize(noActiveIncomingConnections ? width : newWidth, 20 + (CompositeInfo.height * ClientConnection.getIncomingConnections().size()));//this.incomingActiveConnections.setSize(noActiveIncomingConnections ? width : newWidth, 20 + (CompositeInfo.height * getCurrentIncomingClientInfos().size()));
+				this.activeProxyConnections.setSize(noActiveProxyConnections ? width : newWidth, 20 + (CompositeInfo.height * ClientConnection.getProxyConnections().size()));//this.activeProxyConnections.setSize(noActiveProxyConnections ? width : newWidth, 20 + (CompositeInfo.height * getCurrentProxyClientInfos().size()));
+				this.lblActiveConnections.setBounds(64, 10, this.shell.getSize().x - 92, 48);
+			} catch(Throwable e) {
+				e.printStackTrace();
 			}
-			if(!ranClock) {
-				this.runClock();//Prevents the window from freezing after being resized
-			}
-			
-			final int numOfOutgoingComposites = getNumOfCompositeInfosInComposite(this.outgoingActiveConnections);
-			final int numOfIncomingComposites = getNumOfCompositeInfosInComposite(this.incomingActiveConnections);
-			final int numOfProxyComposites = getNumOfCompositeInfosInComposite(this.activeProxyConnections);
-			
-			final String newOutgoingText = "Outgoing Connections" + (numOfOutgoingComposites > 0 ? "[" + numOfOutgoingComposites + "]" : "");
-			final String newIncomingText = "Incoming Connections" + (numOfIncomingComposites > 0 ? "[" + numOfIncomingComposites + "]" : "");
-			final String newProxyText = JavaWebServer.isProxyServerEnabled() ? "Proxy Connections" + (numOfProxyComposites > 0 ? "[" + numOfProxyComposites + "]" : "") : "(Proxy Server Disabled)";
-			if(!this.tbOutgoingConnections.getText().equals(newOutgoingText)) {
-				this.tbOutgoingConnections.setText(newOutgoingText);
-			}
-			if(!this.tbtmIncomingConnections.getText().equals(newIncomingText)) {
-				this.tbtmIncomingConnections.setText(newIncomingText);
-			}
-			if(!this.tbtmProxyConnections.getText().equals(newProxyText)) {
-				this.tbtmProxyConnections.setText(newProxyText);
-			}
-			
-			this.tabFolder.setSize(this.shell.getSize().x - 23, this.shell.getSize().y - 124);
-			this.outgoingScrollArea.setSize(this.tabFolder.getSize().x - 10, this.tabFolder.getSize().y - 30);//this.shell.getSize().x - 33, this.shell.getSize().y - 154);//this.shell.getSize().x - 23, this.shell.getSize().y - 124);//...y - 118);
-			this.incomingScrollArea.setSize(this.tabFolder.getSize().x - 10, this.tabFolder.getSize().y - 30);
-			this.proxyScrollArea.setSize(this.tabFolder.getSize().x - 10, this.tabFolder.getSize().y - 30);
-			//this.activeConnections.setSize(422, 10 + (this.connectionHeight * getCurrentClientInfos().size()));//this.activeConnections.setBounds(/*10, 64*/0, 0, 422, /*642 + */10 + (this.connectionHeight * getCurrentClientInfos().size()));
-			
-			final int width = this.tabFolder.getSize().x - 30;//this.shell.getSize().x - 20;
-			final int newWidth = width < 415 ? 415 : width;//width < 420 ? 420 : width;
-			this.outgoingActiveConnections.setSize(noActiveConnections ? width : newWidth, 20 + (CompositeInfo.height * getCurrentOutgoingClientInfos().size()));
-			this.incomingActiveConnections.setSize(noActiveIncomingConnections ? width : newWidth, 20 + (CompositeInfo.height * getCurrentIncomingClientInfos().size()));
-			this.activeProxyConnections.setSize(noActiveProxyConnections ? width : newWidth, 20 + (CompositeInfo.height * getCurrentProxyClientInfos().size()));
-			this.lblActiveConnections.setBounds(64, 10, this.shell.getSize().x - 92, 48);
 		}
 	}
 	
 	/** Tells the server to shut down */
-	public final void shutdown() {
-		this.isEnabled = false;
-		this.consoleThread.stopThread();
+	public static final void shutdown() {
+		isEnabled = false;
+		consoleThread.stopThread();
 	}
 	
 	/** Create contents of the window. */
@@ -383,17 +483,15 @@ public class Main {
 					} else if(response == Response.NO) {
 						Main.this.showWindow = true;
 					} else if(response == Response.CLOSE) {
-						JavaWebServer.getInstance().shutdown();
+						JavaWebServer.shutdown();
 					}
 				}
 			}
 		});
-		this.shell.setImages(new Image[] {SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-16x16.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-32x32.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-64x64.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-128x128.png")});
+		this.shell.setImages(Main.getDefaultShellImages());
 		this.shell.setSize(465, 760);
 		this.shell.setText(JavaWebServer.APPLICATION_NAME + " Version " + JavaWebServer.APPLICATION_VERSION + " - Made by Brian_Entei");
 		Functions.centerShellOnPrimaryMonitor(this.shell);
-		
-		this.currentThread = Thread.currentThread();
 		
 		Menu menu = new Menu(this.shell, SWT.BAR);
 		this.shell.setMenuBar(menu);
@@ -403,6 +501,26 @@ public class Main {
 		
 		Menu menu_1 = new Menu(mntmfile);
 		mntmfile.setMenu(menu_1);
+		
+		MenuItem mntmClientUseragentOptions = new MenuItem(menu_1, SWT.NONE);
+		mntmClientUseragentOptions.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				if(!Main.this.isADialogOpen) {
+					Main.this.isADialogOpen = true;
+					HTTPClientUserAgentOptionsDialog dialog = new HTTPClientUserAgentOptionsDialog(Main.this.shell);
+					Response response = dialog.open();
+					dialog.dispose();
+					if(response == Response.OK) {
+						dialog.applySettings();
+					}
+					Main.this.isADialogOpen = false;
+				}
+			}
+		});
+		mntmClientUseragentOptions.setText("Client User-Agent Options...");
+		
+		new MenuItem(menu_1, SWT.SEPARATOR);
 		
 		MenuItem mntmHideWindow = new MenuItem(menu_1, SWT.NONE);
 		mntmHideWindow.addSelectionListener(new SelectionAdapter() {
@@ -425,13 +543,21 @@ public class Main {
 		mntmShutDownServer.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				JavaWebServer.getInstance().shutdown();
+				if(!Main.this.isADialogOpen) {
+					JavaWebServer.shutdown();
+				}
 			}
 		});
 		mntmShutDownServer.setText("&Shut down server");
 		
-		MenuItem mntmoptions = new MenuItem(menu, SWT.NONE);
-		mntmoptions.addSelectionListener(new SelectionAdapter() {
+		MenuItem mntmoptions = new MenuItem(menu, SWT.CASCADE);
+		mntmoptions.setText("Options");
+		
+		Menu menu_2 = new Menu(mntmoptions);
+		mntmoptions.setMenu(menu_2);
+		
+		MenuItem mntmOptions = new MenuItem(menu_2, SWT.NONE);
+		mntmOptions.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
 				if(!Main.this.isADialogOpen) {
@@ -441,7 +567,18 @@ public class Main {
 				}
 			}
 		});
-		mntmoptions.setText("&Options");
+		mntmOptions.setText("&Options...");
+		
+		new MenuItem(menu_2, SWT.SEPARATOR);
+		
+		MenuItem mntmpurgeConnectedSockets = new MenuItem(menu_2, SWT.NONE);
+		mntmpurgeConnectedSockets.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				//TODO
+			}
+		});
+		mntmpurgeConnectedSockets.setText("&Purge connected sockets Deque");
 		
 		MenuItem mntmabout = new MenuItem(menu, SWT.NONE);
 		mntmabout.addSelectionListener(new SelectionAdapter() {
@@ -480,7 +617,7 @@ public class Main {
 		
 		this.outgoingActiveConnections = new Composite(this.outgoingScrollArea, SWT.NONE);
 		this.outgoingActiveConnections.setBackground(SWTResourceManager.getColor(SWT.COLOR_WIDGET_BACKGROUND));
-		this.outgoingActiveConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * getCurrentOutgoingClientInfos().size()));//this.activeConnections.setBounds(10, 64, 420, 642);
+		this.outgoingActiveConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * ClientConnection.getOutgoingConnections().size()));//this.outgoingActiveConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * getCurrentOutgoingClientInfos().size()));//this.activeConnections.setBounds(10, 64, 420, 642);
 		
 		this.lblNoOutgoingConnections = new Label(this.outgoingActiveConnections, SWT.NONE);
 		this.lblNoOutgoingConnections.setBackground(SWTResourceManager.getColor(SWT.COLOR_WIDGET_BACKGROUND));
@@ -498,7 +635,7 @@ public class Main {
 		
 		this.incomingActiveConnections = new Composite(this.incomingScrollArea, SWT.NONE);
 		this.incomingActiveConnections.setBackground(SWTResourceManager.getColor(SWT.COLOR_WIDGET_BACKGROUND));
-		this.incomingActiveConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * getCurrentIncomingClientInfos().size()));//this.activeConnections.setBounds(10, 64, 420, 642);
+		this.incomingActiveConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * ClientConnection.getIncomingConnections().size()));//this.incomingActiveConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * getCurrentIncomingClientInfos().size()));//this.activeConnections.setBounds(10, 64, 420, 642);
 		
 		this.lblNoIncomingConnections = new Label(this.incomingActiveConnections, SWT.NONE);
 		this.lblNoIncomingConnections.setBackground(SWTResourceManager.getColor(SWT.COLOR_WIDGET_BACKGROUND));
@@ -515,7 +652,7 @@ public class Main {
 		
 		this.activeProxyConnections = new Composite(this.proxyScrollArea, SWT.NONE);
 		this.activeProxyConnections.setBackground(SWTResourceManager.getColor(SWT.COLOR_WIDGET_BACKGROUND));
-		this.activeProxyConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * getCurrentProxyClientInfos().size()));//this.activeConnections.setBounds(10, 64, 420, 642);
+		this.activeProxyConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * ClientConnection.getProxyConnections().size()));//this.activeProxyConnections.setBounds(10, 64, this.shell.getSize().x - 40, 20 + (CompositeInfo.height * getCurrentProxyClientInfos().size()));//this.activeConnections.setBounds(10, 64, 420, 642);
 		
 		this.lblNoProxyConnections = new Label(this.activeProxyConnections, SWT.NONE);
 		this.lblNoProxyConnections.setBackground(SWTResourceManager.getColor(SWT.COLOR_WIDGET_BACKGROUND));
@@ -525,13 +662,43 @@ public class Main {
 		
 	}
 	
-	protected static final ArrayList<ClientInfo> getCurrentOutgoingClientInfos() {
-		return new ArrayList<>(JavaWebServer.connectedClients);
+	/*protected static final ArrayList<ClientStatus> getCurrentOutgoingClientInfos() {
+		ArrayList<ClientStatus> list = new ArrayList<>();
+		for(ClientConnection connection : JavaWebServer.sockets) {
+			//if(connection.status.getStartTime() == 0 || connection.request == null || !connection.request.isFinished() || connection.request.isProxyRequest) {
+			//	continue;
+			//}
+			if(!connection.status.canBeInAList() || connection.status.isProxyRequest() || connection.status.isIncoming()) {
+				continue;
+			}
+			list.add(connection.status);
+		}
+		return list;//new ArrayList<>(JavaWebServer.connectedClients);//FIXME
 	}
 	
-	protected static final ArrayList<ClientRequestStatus> getCurrentIncomingClientInfos() {
-		return new ArrayList<>(JavaWebServer.connectedClientRequests);
+	protected static final ArrayList<ClientStatus> getCurrentIncomingClientInfos() {
+		ArrayList<ClientStatus> list = new ArrayList<>();
+		for(ClientConnection connection : JavaWebServer.sockets) {
+			if(!connection.status.canBeInAList() || connection.status.isProxyRequest() || !connection.status.isIncoming()) {
+				continue;
+			}
+			list.add(connection.status);
+		}
+		return list;//return new ArrayList<>(JavaWebServer.connectedClientRequests);
 	}
+	
+	protected static final ArrayList<ClientStatus> getCurrentProxyClientInfos() {
+		ArrayList<ClientStatus> list = new ArrayList<>();
+		for(ClientConnection connection : JavaWebServer.sockets) {
+			if(!connection.status.canBeInAList()) {
+				continue;
+			}
+			if(connection.status.isProxyRequest()) {
+				list.add(connection.status);
+			}
+		}
+		return list;//return new ArrayList<>(JavaWebServer.connectedProxyRequests);
+	}*/
 	
 	private static final int getNumOfCompositeInfosInComposite(Composite parent) {
 		int num = 0;
@@ -543,16 +710,12 @@ public class Main {
 		return num;
 	}
 	
-	protected static final ArrayList<ClientRequestStatus> getCurrentProxyClientInfos() {
-		return new ArrayList<>(JavaWebServer.connectedProxyRequests);
-	}
-	
-	private CompositeInfo getCompositeForOutgoingConnection(final ClientInfo info) {
+	private CompositeInfo getCompositeForOutgoingConnection(final ClientStatus info) {
 		for(Control control : this.outgoingActiveConnections.getChildren()) {
 			this.runClock();
 			if(control instanceof CompositeInfo) {
 				CompositeInfo connection = (CompositeInfo) control;
-				if(connection.uuid.equals(info.uuid)) {
+				if(connection.uuid.equals(info.getUUID())) {
 					this.updateCompositeInfoLocations(this.outgoingActiveConnections.getChildren());
 					connection.updateUI();
 					return connection;
@@ -565,13 +728,13 @@ public class Main {
 		return connection;
 	}
 	
-	private CompositeInfo getCompositeForConnection(final ClientRequestStatus info, Composite parent) {
+	private CompositeInfo getCompositeForConnection(final ClientStatus status, Composite parent) {
 		int numOfCompositeChildren = 0;
 		for(Control control : parent.getChildren()) {
 			if(control instanceof CompositeInfo) {
 				numOfCompositeChildren++;
 				CompositeInfo connection = (CompositeInfo) control;
-				if(connection.uuid.equals(info.getUUID())) {
+				if(connection.uuid.equals(status.getUUID())) {
 					this.updateCompositeInfoLocations(parent.getChildren());
 					connection.updateUI();
 					return connection;
@@ -579,8 +742,8 @@ public class Main {
 			}
 			this.runClock();
 		}
-		if(numOfCompositeChildren < 30) {
-			CompositeInfo connection = new CompositeInfo(this.shell, parent, SWT.BORDER | SWT.EMBEDDED, info, false, parent != this.activeProxyConnections);
+		if(numOfCompositeChildren < 10) {//< 30) {
+			CompositeInfo connection = new CompositeInfo(this.shell, parent, SWT.BORDER | SWT.EMBEDDED, status);
 			this.updateCompositeInfoLocations(parent.getChildren());
 			return connection;
 		}
@@ -592,7 +755,7 @@ public class Main {
 		for(Control control : controls) {
 			if(control != null && control instanceof CompositeInfo) {
 				CompositeInfo info = (CompositeInfo) control;
-				info.setLocation(10, 10 + (CompositeInfo.height * i));//info.setBounds(10, 10 + (CompositeInfo.height * i), 403, CompositeInfo.height);
+				Functions.setLocationFor(info, new Point(10, 10 + (CompositeInfo.height * i)));//info.setBounds(10, 10 + (CompositeInfo.height * i), 403, CompositeInfo.height);
 				i++;
 			}
 		}

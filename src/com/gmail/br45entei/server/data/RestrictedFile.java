@@ -3,12 +3,15 @@ package com.gmail.br45entei.server.data;
 import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.configuration.ConfigurationSection;
 import com.gmail.br45entei.configuration.file.YamlConfiguration;
+import com.gmail.br45entei.server.ClientConnection;
+import com.gmail.br45entei.util.AddressUtil;
 import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.CodeUtil.EnumOS;
 import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -22,7 +25,7 @@ import org.apache.commons.io.FilenameUtils;
  *
  * @author Brian_Entei */
 public final class RestrictedFile implements DisposableUUIDData {
-	protected static final ArrayList<RestrictedFile>	instances	= new ArrayList<>();
+	protected static final ArrayList<RestrictedFile> instances = new ArrayList<>();
 	
 	/** @return An arraylist containing all of the RestrictedFiles currently
 	 *         loaded and in use */
@@ -30,18 +33,18 @@ public final class RestrictedFile implements DisposableUUIDData {
 		return new ArrayList<>(instances);
 	}
 	
-	protected final UUID					uuid;
-	protected File							file;
+	protected final UUID uuid;
+	protected File file;
 	
-	protected String						authRealm		= JavaWebServer.DEFAULT_AUTHORIZATION_REALM;
-	protected final ArrayList<Credential>	authCreds		= new ArrayList<>();
+	protected String authRealm = JavaWebServer.DEFAULT_AUTHORIZATION_REALM;
+	protected final ArrayList<Credential> authCreds = new ArrayList<>();
 	
-	public final Property<Boolean>			isHidden		= new Property<>("IsHidden", Boolean.FALSE).setDescription("Whether or not this directory is hidden(as in only people with the link can get to it, etc.)");
-	public final Property<Boolean>			canModifyFiles	= new Property<>("canModifyFiles", Boolean.FALSE);
+	public final Property<Boolean> isHidden = new Property<>("IsHidden", Boolean.FALSE).setDescription("Whether or not this directory is hidden(as in only people with the link can get to it, etc.)");
+	public final Property<Boolean> canModifyFiles = new Property<>("canModifyFiles", Boolean.FALSE);
 	
-	protected final ArrayList<String>		allowedIPs		= new ArrayList<>();
+	protected final ArrayList<String> allowedIPs = new ArrayList<>();
 	
-	public final void setValuesFromHashMap(HashMap<String, String> values) {
+	public final void setValuesFromHashMap(HashMap<String, String> values, ClientConnection reuse) {
 		final ArrayList<String> allowedIPs = new ArrayList<>();
 		for(int i = 0; i < 20; i++) {
 			allowedIPs.add("");
@@ -80,7 +83,7 @@ public final class RestrictedFile implements DisposableUUIDData {
 			} else if(pname.startsWith("AuthPassword_")) {
 				authPasswords.put(pname, value);
 			} else {
-				JavaWebServer.println("*** Unknown value sent: " + pname + ": " + value);
+				reuse.println("*** Unknown value sent: " + pname + ": " + value);
 			}
 		}
 		this.allowedIPs.clear();
@@ -144,6 +147,10 @@ public final class RestrictedFile implements DisposableUUIDData {
 	
 	public static final boolean isFileRestricted(File requestedFile) {
 		return getRestrictedFile(requestedFile) != null;
+	}
+	
+	public static final boolean isFileRestricted(File requestedFile, Socket s) {
+		return isFileRestricted(requestedFile, AddressUtil.getClientAddressNoPort(s));
 	}
 	
 	public static final boolean isFileRestricted(File requestedFile, String clientIPAddress) {
@@ -311,19 +318,53 @@ public final class RestrictedFile implements DisposableUUIDData {
 		return new ArrayList<>(this.allowedIPs);
 	}
 	
+	private static final String getCorrectIPFrom(String ip) {
+		String[] checkIP = AddressUtil.getValidHostFrom(ip);
+		if(checkIP == null || checkIP.length != 2) {
+			return null;
+		}
+		if(!checkIP[1].isEmpty()) {
+			//LogUtils.println("checkIP[1]: " + checkIP[1]);
+			ip = AddressUtil.getClientAddressNoPort(ip);
+			//LogUtils.println("resulting IP: " + ip);
+		}
+		return checkIP[0];
+	}
+	
+	public final boolean isIPAllowed(Socket s) {
+		return this.isIPAllowed(AddressUtil.getClientAddressNoPort(s));
+	}
+	
 	/** @param ip The ip address to test
 	 * @return Whether or not the given ip address is allowed to read from
 	 *         this restricted file */
 	public final boolean isIPAllowed(String ip) {
-		if(getAllowedIPAddresses().contains("any")) {
+		//LogUtils.println("OLD IP: " + ip);
+		ip = getCorrectIPFrom(ip);
+		//LogUtils.println("NEW IP: " + ip);
+		//new Throwable().printStackTrace();
+		if(this.getAllowedIPAddresses().contains("any")) {
 			return true;
 		}
-		return getAllowedIPAddresses().contains(ip);
+		for(String allowed : this.getAllowedIPAddresses()) {
+			if(allowed.equalsIgnoreCase(ip)) {
+				return true;
+			}
+		}
+		if(ip.startsWith("[") && ip.endsWith("]")) {
+			String externalIP = AddressUtil.getIp();
+			String ipv6LocalMachineExternalIP = AddressUtil.convertIpv4ToIpv6(externalIP);
+			if(ip.equalsIgnoreCase(ipv6LocalMachineExternalIP)) {
+				return this.isIPAllowed(externalIP);
+			}
+		}
+		return this.getAllowedIPAddresses().contains(ip);
 	}
 	
 	/** @param ip The ip address to add
 	 * @return whether or not it was added successfully */
 	public final boolean addIPAddress(String ip) {
+		ip = getCorrectIPFrom(ip);
 		if(this.isIPAllowed(ip)) {
 			return false;
 		}
@@ -333,6 +374,7 @@ public final class RestrictedFile implements DisposableUUIDData {
 	/** @param ip The ip address to remove
 	 * @return Whether or not it was removed successfully */
 	public final boolean removeIPAddress(String ip) {
+		ip = getCorrectIPFrom(ip);
 		if(!this.isIPAllowed(ip)) {
 			return false;
 		}
@@ -709,15 +751,39 @@ public final class RestrictedFile implements DisposableUUIDData {
 		return false;
 	}
 	
+	public static final RestrictedFile getHidden(File file) {
+		RestrictedFile res = getRestrictedFile(file);
+		if(res == null) {
+			return null;
+		}
+		if(isSpecificHidden(file)) {
+			return res;
+		}
+		if(res.isHidden.getValue().booleanValue()) {
+			return res;
+		}
+		String[] split = FilenameUtils.normalize(file.getAbsolutePath()).replace("\\", "/").split(Pattern.quote("/"));
+		String curPath = "";
+		final EnumOS os = CodeUtil.getOSType();
+		for(String path : split) {
+			if(path == null || path.trim().isEmpty()) {
+				continue;
+			}
+			curPath += path + (os == EnumOS.WINDOWS ? "\\" : "/");
+			File curFile = new File(FilenameUtils.normalize(curPath));
+			if(isSpecificHidden(curFile)) {
+				return getRestrictedFile(curFile);
+			}
+		}
+		return null;
+	}
+	
 	public static final boolean isHidden(File file, boolean checkParents) {
 		if(isSpecificHidden(file)) {
 			return true;
 		}
 		RestrictedFile res = getRestrictedFile(file);
-		if(res == null) {
-			return false;
-		}
-		if(res.isHidden.getValue().booleanValue()) {
+		if(res != null && res.isHidden.getValue().booleanValue()) {
 			return true;
 		}
 		if(checkParents) {
@@ -733,6 +799,10 @@ public final class RestrictedFile implements DisposableUUIDData {
 				if(isSpecificHidden(curFile)) {
 					return true;
 				}
+			}
+			RestrictedFile lastCheck = getHidden(file);//gets the ACTUAL hidden file up the directory tree
+			if(lastCheck != null) {
+				return lastCheck.isHidden.getValue().booleanValue();//return true;
 			}
 		}
 		return false;

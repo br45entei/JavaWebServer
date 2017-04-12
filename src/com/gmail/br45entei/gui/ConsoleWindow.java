@@ -6,6 +6,7 @@ import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
 import com.gmail.br45entei.server.HTTPClientRequest;
 import com.gmail.br45entei.server.data.Property;
 import com.gmail.br45entei.server.data.php.PhpResult;
+import com.gmail.br45entei.swt.Functions;
 import com.gmail.br45entei.swt.WindowsClassicThemeDetector;
 import com.gmail.br45entei.util.CodeUtil;
 import com.gmail.br45entei.util.LogUtils;
@@ -24,6 +25,7 @@ import java.lang.management.ThreadMXBean;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map.Entry;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.eclipse.swt.SWT;
@@ -47,70 +49,122 @@ import org.eclipse.wb.swt.SWTResourceManager;
 /** @author Brian_Entei */
 public class ConsoleWindow {
 	
-	protected Shell									shell;
-	protected Text									txtInputfield;
-	protected StyledText							consoleText;
-	protected String								consoleFontName			= "Consolas";
-	protected int									consoleFontSize			= 8;
-	protected boolean								consoleFontBold			= false;
-	protected boolean								consoleFontStrikeout	= false;
-	protected boolean								consoleFontUnderLined	= false;
-	protected boolean								consoleFontItalicized	= false;
-	private Label									lblCommand;
-	protected Button								scrollLck;
+	protected Shell shell;
+	protected Text txtInputfield;
+	protected StyledText consoleText;
+	protected String consoleFontName = "Consolas";
+	protected int consoleFontSize = 8;
+	protected boolean consoleFontBold = false;
+	protected boolean consoleFontStrikeout = false;
+	protected boolean consoleFontUnderLined = false;
+	protected boolean consoleFontItalicized = false;
+	private Label lblCommand;
+	protected Button scrollLck;
 	
-	protected boolean								isScrollLocked			= false;
-	protected boolean								showDebugText			= false;
+	protected boolean isScrollLocked = false;
+	protected boolean showDebugText = false;
 	
-	protected final DisposableByteArrayOutputStream	out						= new DisposableByteArrayOutputStream();
-	protected final Property<String>				outTxt					= new Property<>("Console Text", "");
-	protected final Thread							outTxtUpdateThread		= new Thread(new Runnable() {
-																				@Override
-																				public final void run() {
-																					int lastBufferSize = 0;
-																					while(true) {
-																						if(ConsoleWindow.this.out.size() != lastBufferSize) {
-																							lastBufferSize = ConsoleWindow.this.out.size();
-																							try {
-																								final String text;
-																								String t = ConsoleWindow.this.out.toString();
-																								CodeUtil.sleep(15L);
-																								if(LogUtils.isConsoleMode()) {
-																									String random = ((Object) "".toCharArray()).toString();
-																									t = t.replace(LogUtils.carriageReturn() + LogUtils.getCarriageReturnConsolePrefix(), "").replace(LogUtils.carriageReturn() + "\n", random).replace(LogUtils.carriageReturn(), "\n").replace("\n\n", "\n").replace(random, LogUtils.carriageReturn() + "\n").replace("\n\n", "\n");
-																								}
-																								CodeUtil.sleep(10L);
-																								final int maxLines = 10000;
-																								final int numOfLines = StringUtils.getNumOfLinesInStr(t);
-																								CodeUtil.sleep(10L);
-																								if(numOfLines > maxLines) {
-																									final int numOfLinesToSkip = numOfLines - maxLines;
-																									int i = 0;
-																									String[] split = t.split(Pattern.quote("\n"));
-																									t = "";
-																									for(String s : split) {
-																										i++;
-																										if(i >= numOfLinesToSkip) {
-																											t += s + "\n";
-																										}
-																										CodeUtil.sleep(10L);
-																									}
-																								}
-																								text = t + LogUtils.getCarriageReturnConsolePrefix();
-																								ConsoleWindow.this.outTxt.setValue(text);
-																							} catch(Throwable e) {
-																								e.printStackTrace();
-																							}
-																						}
-																						CodeUtil.sleep(20L);
-																					}
-																				}
-																			}, "ConsoleWindow_UpdateThread");
+	protected final DisposableByteArrayOutputStream out = new DisposableByteArrayOutputStream();
+	protected final Property<String> outTxt = new Property<>("Console Text", "");
+	protected volatile Thread outTxtUpdateThread = null;
+	protected volatile boolean outTxtUpdateThreadShouldRun = true;
 	
-	protected final HashMap<Integer, String>		inputtedCommands		= new HashMap<>();
-	protected final Property<Integer>				selectedCommand			= new Property<>("Selected Command", Integer.valueOf(0));
+	protected final HashMap<Integer, String> inputtedCommands = new HashMap<>();
+	protected final Property<Integer> selectedCommand = new Property<>("Selected Command", Integer.valueOf(0));
 	
-	protected final File							consoleSettingsFile		= new File(JavaWebServer.rootDir, "consoleFontSettings.txt");
+	protected final File consoleSettingsFile = new File(JavaWebServer.rootDir, "consoleFontSettings.txt");
+	
+	public ConsoleWindow() {
+		this.resetOutTxtUpdateThread(false);
+	}
+	
+	@SuppressWarnings("deprecation")
+	private final void resetOutTxtUpdateThread(boolean startThreadNow) {
+		if(this.outTxtUpdateThread != null) {
+			this.outTxtUpdateThreadShouldRun = false;
+			long startTime = System.currentTimeMillis();
+			while(this.outTxtUpdateThread.isAlive()) {
+				Main.getInstance().runLoopNoWindow();
+				if(System.currentTimeMillis() - startTime >= 3000L) {
+					try {
+						try {
+							this.outTxtUpdateThread.stop();
+						} catch(Error | RuntimeException iFrigginSaidIgnored) {
+							this.outTxtUpdateThread.interrupt();
+						} catch(Throwable ignored) {
+							this.outTxtUpdateThread.interrupt();
+						}
+					} catch(Error | RuntimeException iFrigginSaidIgnored) {
+					} catch(Throwable ignored) {
+					}
+					break;
+				}
+			}
+			this.outTxtUpdateThreadShouldRun = false;
+			this.outTxtUpdateThread = null;
+		}
+		this.outTxtUpdateThread = new Thread(new Runnable() {
+			@Override
+			public final void run() {
+				int lastBufferSize = 0;
+				while(ConsoleWindow.this.outTxtUpdateThreadShouldRun) {
+					if(ConsoleWindow.this.out.size() != lastBufferSize) {
+						lastBufferSize = ConsoleWindow.this.out.size();
+						try {
+							final String text;
+							String t = ConsoleWindow.this.out.toString().replaceAll(Pattern.quote("Â"), Matcher.quoteReplacement(""));
+							Functions.sleep();
+							if(LogUtils.isConsoleMode()) {
+								String random = ((Object) "".toCharArray()).toString();
+								t = t.replace(LogUtils.carriageReturn() + LogUtils.getConsolePrefixChar(), "").replace(LogUtils.carriageReturn() + "\n", random).replace(LogUtils.carriageReturn(), "\n").replace("\n\n", "\n").replace(random, LogUtils.carriageReturn() + "\n").replace("\n\n", "\n");
+							}
+							Functions.sleep();
+							final int maxLines = 2000;//10000;
+							final int numOfLines = StringUtils.getNumOfLinesInStr(t);
+							Functions.sleep();
+							if(numOfLines > maxLines) {
+								final int numOfLinesToSkip = numOfLines - maxLines;
+								int i = 0;
+								String[] split = t.split(Pattern.quote("\n"));
+								t = "";
+								long startTime = System.currentTimeMillis();
+								for(String s : split) {
+									i++;
+									if(i < numOfLinesToSkip) {
+										Functions.sleep();
+										startTime = System.currentTimeMillis();
+										continue;
+									}
+									//if(i >= numOfLinesToSkip) {
+									t += s + "\n";
+									//}
+									if(System.currentTimeMillis() - startTime >= 50L) {
+										Functions.sleep();
+										startTime = System.currentTimeMillis();
+									}
+									if(!ConsoleWindow.this.outTxtUpdateThreadShouldRun) {
+										break;
+									}
+								}
+							}
+							if(!ConsoleWindow.this.outTxtUpdateThreadShouldRun) {
+								break;
+							}
+							text = t + LogUtils.getConsolePrefixChar();
+							ConsoleWindow.this.outTxt.setValue(text);
+						} catch(Throwable e) {
+							e.printStackTrace();
+						}
+					}
+					Functions.sleep(20L);
+				}
+			}
+		}, "ConsoleWindow_UpdateThread");
+		this.outTxtUpdateThread.setDaemon(true);
+		if(startThreadNow) {
+			this.outTxtUpdateThread.start();
+		}
+	}
 	
 	/** Launch the application.
 	 * 
@@ -165,34 +219,32 @@ public class ConsoleWindow {
 			return;
 		}
 		if(Main.getInstance() != null) {
-			Main.getInstance().exitCheck();
+			Main.exitCheck();
 		}
 		if(this.shell.isVisible()) {
 			if(!this.shell.getDisplay().readAndDispatch()) {
 				//display.sleep();
-				CodeUtil.sleep(1L);
+				Functions.sleep();//CodeUtil.sleep(1L);
 			}
 			return;
 		}
 		CodeUtil.sleep(10L);
 	}
 	
-	protected final String	scrollLckToolTipText	= "Toggles the scroll lock, which keeps the scroll bar\r\nin the same place when new text is printed to the console.\r\nUseful if you are trying to read something.\r\n";
+	protected final String scrollLckToolTipText = "Toggles the scroll lock, which keeps the scroll bar\r\nin the same place when new text is printed to the console.\r\nUseful if you are trying to read something.\r\n";
 	
 	/** Create contents of the window. */
 	protected void createContents() {
 		this.outTxtUpdateThread.setDaemon(true);
 		this.outTxtUpdateThread.start();
 		this.shell = new Shell(SWT.SHELL_TRIM);
-		if(Main.getInstance() != null) {
-			this.shell.addListener(SWT.Close, new Listener() {
-				@Override
-				public void handleEvent(Event event) {
-					event.doit = false;
-					JavaWebServer.getInstance().shutdown();
-				}
-			});
-		}
+		this.shell.addListener(SWT.Close, new Listener() {
+			@Override
+			public void handleEvent(Event event) {
+				event.doit = false;
+				JavaWebServer.shutdown();
+			}
+		});
 		this.shell.setImages(new Image[] {SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-16x16.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-32x32.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-64x64.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-128x128.png")});
 		this.shell.setSize(617, 387);
 		this.shell.setText("JavaWebServer Console Window");
@@ -351,15 +403,18 @@ public class ConsoleWindow {
 								return;
 							}
 						} else {
-							if(Main.getInstance() != null) {
+							if(LogUtils.isConsolePresent()) {
+								LogUtils.ORIGINAL_SYSTEM_OUT.print(LogUtils.carriageReturn() + LogUtils.getConsolePrefixChar() + input + "\n" + (LogUtils.carriageReturn() + LogUtils.getConsolePrefixChar()));
+							}
+							if(Main.getInstance() != null && !input.trim().isEmpty()) {
 								try {
-									ConsoleThread.handleInput(input, Main.getInstance().getConsoleThread());
+									ConsoleThread.handleInput(input, Main.getConsoleThread());
 								} catch(Throwable e) {
 									e.printStackTrace();
 								}
 							} else {
 								try {
-									ConsoleWindow.this.out.write((">" + input + "\n").getBytes());
+									ConsoleWindow.this.out.write(((LogUtils.isConsoleMode() && !input.isEmpty() ? "" : LogUtils.getConsolePrefixChar()) + input).getBytes());
 								} catch(IOException ignored) {
 								}
 							}
@@ -378,7 +433,8 @@ public class ConsoleWindow {
 		this.lblCommand.setBounds(0, this.shell.getSize().y - 56, 58, 13);
 		this.lblCommand.setText("Command:");
 		
-		this.consoleText = new StyledText(this.shell, SWT.READ_ONLY | SWT.MULTI | SWT.V_SCROLL);
+		this.consoleText = new StyledText(this.shell, SWT.READ_ONLY | SWT.MULTI | SWT.V_SCROLL | SWT.H_SCROLL);
+		//this.consoleText.setContent(new CustomStyledTextContent());
 		this.consoleText.addKeyListener(new KeyAdapter() {
 			@Override
 			public void keyPressed(KeyEvent e) {
@@ -504,8 +560,8 @@ public class ConsoleWindow {
 		this.setConsoleText(text);
 	}
 	
-	private String	lastDebugText	= null;
-	private long	lastDebugTime	= System.currentTimeMillis();
+	private String lastDebugText = null;
+	private long lastDebugTime = System.currentTimeMillis();
 	
 	protected final String getDebugText() {
 		if(this.shell.isDisposed()) {
@@ -516,7 +572,7 @@ public class ConsoleWindow {
 		}
 		String text = "You are viewing the debug screen.\r\nType \"done\" to return to the console view.\r\n\r\n";
 		text += "Server active: " + JavaWebServer.serverActive() + "\r\n";
-		text += "Server is shutting down: " + (JavaWebServer.getInstance() != null ? JavaWebServer.getInstance().isShuttingDown() + "" : "null") + "\r\n";
+		text += "Server is shutting down: " + Boolean.toString(JavaWebServer.isShuttingDown()) + "\r\n";
 		text += "Root directory: \"" + JavaWebServer.rootDir.getAbsolutePath() + "\"\r\n";
 		text += "System-dependant number of threads per cpu(1000 times number of processors): " + JavaWebServer.fNumberOfThreads + "\r\n";
 		text += "Override default thread pool size: " + JavaWebServer.overrideThreadPoolSize + "\r\n";
@@ -606,6 +662,13 @@ public class ConsoleWindow {
 				ignored.printStackTrace();
 			}
 		}
+	}
+	
+	/** Clears the screen */
+	public void cls() {
+		this.out.resetAll();
+		this.resetOutTxtUpdateThread(true);
+		this.out.resetAll();
 	}
 	
 }

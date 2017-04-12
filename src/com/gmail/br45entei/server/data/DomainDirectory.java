@@ -4,8 +4,11 @@ import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.ResourceFactory;
 import com.gmail.br45entei.configuration.ConfigurationSection;
 import com.gmail.br45entei.configuration.file.YamlConfiguration;
+import com.gmail.br45entei.server.ClientConnection;
 import com.gmail.br45entei.server.MimeTypes;
 import com.gmail.br45entei.swt.Functions;
+import com.gmail.br45entei.util.AddressUtil;
+import com.gmail.br45entei.util.PrintUtil;
 import com.gmail.br45entei.util.StringUtils;
 
 import java.io.File;
@@ -23,7 +26,19 @@ import org.apache.commons.io.FilenameUtils;
  *
  * @author Brian_Entei */
 public final class DomainDirectory implements DisposableUUIDData {
-	protected static final ArrayList<DomainDirectory>	instances	= new ArrayList<>();
+	
+	protected static final ArrayList<DomainDirectory> instances = new ArrayList<>();
+	
+	public static final DomainDirectory getDefault(ClientConnection reuse) {
+		final String domain = AddressUtil.getLocalExternalHostName();
+		DomainDirectory check = getDomainDirectoryFromDomainName(domain);
+		if(check == null) {
+			check = getOrCreateDomainDirectory(domain, reuse);
+		}
+		reuse.domainDirectory = reuse.domainDirectory == null ? check : reuse.domainDirectory;
+		reuse.status.setDomainDirectory(reuse.domainDirectory);
+		return check;
+	}
 	
 	/** @return An arraylist containing all domain directory data currently
 	 *         in use */
@@ -33,44 +48,44 @@ public final class DomainDirectory implements DisposableUUIDData {
 		return rtrn;
 	}
 	
-	public final Property<Long>		dateCreated								= new Property<>("Date Created", Long.valueOf(System.currentTimeMillis())).setDescription("");
-	public final Property<Long>		lastEdited								= new Property<>("Last Edited", this.dateCreated.getValue()).setDescription("");
+	public final Property<Long> dateCreated = new Property<>("Date Created", Long.valueOf(System.currentTimeMillis())).setDescription("");
+	public final Property<Long> lastEdited = new Property<>("Last Edited", this.dateCreated.getValue()).setDescription("");
 	
-	private boolean					isTemporary								= false;
+	private boolean isTemporary = false;
 	
-	public final Property<UUID>		uuid									= new Property<UUID>("UUID").setDescription("This domain's randomly generated universally unique identifier, or UUID. This cannot be changed.");
-	public final Property<File>		folder									= new Property<File>("HomeDirectory").setDescription("The root folder that will be used as a starting point for serving and looking up files. If no default file is specified, the generated page for this folder is displayed in place of the home page.");
-	public final Property<String>	domain									= new Property<String>("Domain").setDescription("The ip address that clients will use when connecting to the server. A client may actually use a different ip address, but must use this domain's ip address in the \"host: \" header of it's request in order to connect to this domain, or a \"400 Bad Request\" response will be sent to the client for not having specified a host to connect to(if using HTTP/1.0, the server's external ip address is assumed).");
-	public final Property<String>	serverName								= new Property<>("ServerName", JavaWebServer.SERVER_NAME).setDescription("The server name for this domain.");
-	public final Property<String>	displayName								= new Property<String>("DisplayName").setDescription("This domain's 'display name', or the name that will be displayed in the client's webpage title.");
-	public final Property<Boolean>	displayLogEntries						= new Property<>("DisplayLogEntries", Boolean.TRUE).setDescription("Whether or not any logs will be shown on the console(including the filesystem) for this domain while clients connect to and download files from it.");
-	public final Property<String>	defaultFileName							= new Property<>("DefaultFileName", JavaWebServer.DEFAULT_FILE_NAME).setDescription("The file(or homepage) that is sent to connecting clients when no file is requested(i.e. \"GET / HTTP/1.1\")");
-	public final Property<String>	defaultFontFace							= new Property<>("DefaultFontFace", JavaWebServer.defaultFontFace).setDescription("The default font that every directory page will use.");
-	public final Property<String>	defaultPageIcon							= new Property<>("DefaultPageIcon", JavaWebServer.DEFAULT_PAGE_ICON).setDescription("The default icon(or favicon) that every directory page(in addition to the default server-wide favicon) will use.");
-	public final Property<String>	defaultStylesheet						= new Property<>("DefaultStylesheet", JavaWebServer.DEFAULT_STYLESHEET).setDescription("The default CSS stylesheet that every generated directory page will use.");
+	public final Property<UUID> uuid = new Property<UUID>("UUID").setDescription("This domain's randomly generated universally unique identifier, or UUID. This cannot be changed.");
+	public final Property<File> folder = new Property<File>("HomeDirectory").setDescription("The root folder that will be used as a starting point for serving and looking up files. If no default file is specified, the generated page for this folder is displayed in place of the home page.");
+	public final Property<String> domain = new Property<String>("Domain").setDescription("The ip address that clients will use when connecting to the server. A client may actually use a different ip address, but must use this domain's ip address in the \"host: \" header of it's request in order to connect to this domain, or a \"400 Bad Request\" response will be sent to the client for not having specified a host to connect to(if using HTTP/1.0, the server's external ip address is assumed).");
+	public final Property<String> serverName = new Property<>("ServerName", JavaWebServer.SERVER_NAME).setDescription("The server name for this domain.");
+	public final Property<String> displayName = new Property<String>("DisplayName").setDescription("This domain's 'display name', or the name that will be displayed in the client's webpage title.");
+	public final Property<Boolean> displayLogEntries = new Property<>("DisplayLogEntries", Boolean.TRUE).setDescription("Whether or not any logs will be shown on the console(including the filesystem) for this domain while clients connect to and download files from it.");
+	public final Property<String> defaultFileName = new Property<>("DefaultFileName", JavaWebServer.DEFAULT_FILE_NAME).setDescription("The file(or homepage) that is sent to connecting clients when no file is requested(i.e. \"GET / HTTP/1.1\")");
+	public final Property<String> defaultFontFace = new Property<>("DefaultFontFace", JavaWebServer.defaultFontFace).setDescription("The default font that every directory page will use.");
+	public final Property<String> defaultPageIcon = new Property<>("DefaultPageIcon", JavaWebServer.DEFAULT_PAGE_ICON).setDescription("The default icon(or favicon) that every directory page(in addition to the default server-wide favicon) will use.");
+	public final Property<String> defaultStylesheet = new Property<>("DefaultStylesheet", JavaWebServer.DEFAULT_STYLESHEET).setDescription("The default CSS stylesheet that every generated directory page will use.");
 	
-	public final Property<String>	pageHeaderContent						= new Property<>("PageHeaderContent", "").setDescription("Any html code that should be placed within the <head> tag of every dynamically generated page from this domain(such as directory pages).");
+	public final Property<String> pageHeaderContent = new Property<>("PageHeaderContent", "").setDescription("Any html code that should be placed within the <head> tag of every dynamically generated page from this domain(such as directory pages).");
 	
-	public final Property<Integer>	mtu										= new Property<>("NetworkMTU", Integer.valueOf(0x400)).setDescription("The maximum transmission unit, or MTU, to use when writing bytes to the output streams of clients(buffer size to use when sending clients data). Recommended setting is 1500, maximum setting should be 20480. Multiples of 512(or powers of 2) are recommended as well, such as 1024.");
-	public final Property<Long>		cacheMaxAge								= new Property<>("CacheMaxAge", JavaWebServer.DEFAULT_CACHE_MAX_AGE).setDescription("The maximum amount of time that clients should keep server files cached.");
+	public final Property<Integer> mtu = new Property<>("NetworkMTU", Integer.valueOf(0x400)).setDescription("The maximum transmission unit, or MTU, to use when writing bytes to the output streams of clients(buffer size to use when sending clients data). Recommended setting is 1500, maximum setting should be 20480. Multiples of 512(or powers of 2) are recommended as well, such as 1024.");
+	public final Property<Long> cacheMaxAge = new Property<>("CacheMaxAge", JavaWebServer.DEFAULT_CACHE_MAX_AGE).setDescription("The maximum amount of time that clients should keep server files cached.");
 	
-	public final Property<Boolean>	areDirectoriesForbidden					= new Property<>("AreDirectoriesForbidden", Boolean.FALSE).setDescription("Whether or not all directories(folders) are forbidden. Files contained within the directories will still be accessible. This allows you to better 'hide' your files without a password, or prevent clients from viewing your website's files all at once.");
-	public final Property<Boolean>	calculateDirectorySizes					= new Property<>("CalculateDirectorySizes", new Boolean(JavaWebServer.calculateDirectorySizes)).setDescription("Whether or not folder sizes are calculated via recursive reading. Recommended setting is false, as this can be slow with old hard disk drives or with many large files, reducing server speed.");
-	public final Property<Boolean>	numberDirectoryEntries					= new Property<>("NumberDirectoryEntries", Boolean.FALSE).setDescription("Whether or not files are numbered in the order that they are read from the local filesystem.");
-	public final Property<Boolean>	listDirectoriesFirst					= new Property<>("ListDirectoriesFirst", Boolean.TRUE).setDescription("Whether or not directories(folders) will be listed first.");
+	public final Property<Boolean> areDirectoriesForbidden = new Property<>("AreDirectoriesForbidden", Boolean.FALSE).setDescription("Whether or not all directories(folders) are forbidden. Files contained within the directories will still be accessible. This allows you to better 'hide' your files without a password, or prevent clients from viewing your website's files all at once.");
+	public final Property<Boolean> calculateDirectorySizes = new Property<>("CalculateDirectorySizes", new Boolean(JavaWebServer.calculateDirectorySizes)).setDescription("Whether or not folder sizes are calculated via recursive reading. Recommended setting is false, as this can be slow with old hard disk drives or with many large files, reducing server speed.");
+	public final Property<Boolean> numberDirectoryEntries = new Property<>("NumberDirectoryEntries", Boolean.FALSE).setDescription("Whether or not files are numbered in the order that they are read from the local filesystem.");
+	public final Property<Boolean> listDirectoriesFirst = new Property<>("ListDirectoriesFirst", Boolean.TRUE).setDescription("Whether or not directories(folders) will be listed first.");
 	
-	public final Property<Boolean>	enableGZipCompression					= new Property<>("EnableGZipCompression", Boolean.TRUE).setDescription("Whether or not Gzip will be used when clients request it");
-	public final Property<Boolean>	enableFileUpload						= new Property<>("EnableFileUpload", Boolean.TRUE).setDescription("Whether or not authenticated users may upload files to the directory they are currently browsing");
-	public final Property<Boolean>	enableAlternateDirectoryListingViews	= new Property<>("EnableAlternateDirectoryListingViews", Boolean.TRUE).setDescription("");
-	public final Property<Boolean>	enableMediaView							= new Property<>("EnableMediaView", Boolean.TRUE).setDescription("Enables viewing audio, video, and image files all on the same page.");
-	public final Property<Boolean>	enableMediaList							= new Property<>("EnableMediaList", Boolean.TRUE).setDescription("Enables viewing the media information of any music files on the same page.");
-	public final Property<Boolean>	enableXmlListView						= new Property<>("EnableXmlListView", Boolean.TRUE).setDescription("Enables viewing a raw xml version of the directory.");
-	public final Property<Boolean>	enableFilterView						= new Property<>("EnableFilterView", Boolean.TRUE).setDescription("Enables filtering file types in the directory.");
-	public final Property<Boolean>	enableSortView							= new Property<>("EnableSortView", Boolean.TRUE).setDescription("Enables sorting the files by name, number, date, type, and size.");
-	public final Property<Boolean>	enableVLCPlaylistView					= new Property<>("EnableVLCPlaylistView", Boolean.TRUE).setDescription("Enables auto-generated VLC playlists of all of the media files on the current directory page.");
-	public final Property<Boolean>	enableReadableFileViews					= new Property<>("EnableReadableFileViews", Boolean.TRUE).setDescription("Enables a link to appear next to the file name of a file that cannot usually be viewed in the browser(i.e. *.rtf files).");
+	public final Property<Boolean> enableGZipCompression = new Property<>("EnableGZipCompression", Boolean.TRUE).setDescription("Whether or not Gzip will be used when clients request it");
+	public final Property<Boolean> enableFileUpload = new Property<>("EnableFileUpload", Boolean.TRUE).setDescription("Whether or not authenticated users may upload files to the directory they are currently browsing");
+	public final Property<Boolean> enableAlternateDirectoryListingViews = new Property<>("EnableAlternateDirectoryListingViews", Boolean.TRUE).setDescription("");
+	public final Property<Boolean> enableMediaView = new Property<>("EnableMediaView", Boolean.TRUE).setDescription("Enables viewing audio, video, and image files all on the same page.");
+	public final Property<Boolean> enableMediaList = new Property<>("EnableMediaList", Boolean.TRUE).setDescription("Enables viewing the media information of any music files on the same page.");
+	public final Property<Boolean> enableXmlListView = new Property<>("EnableXmlListView", Boolean.TRUE).setDescription("Enables viewing a raw xml version of the directory.");
+	public final Property<Boolean> enableFilterView = new Property<>("EnableFilterView", Boolean.TRUE).setDescription("Enables filtering file types in the directory.");
+	public final Property<Boolean> enableSortView = new Property<>("EnableSortView", Boolean.TRUE).setDescription("Enables sorting the files by name, number, date, type, and size.");
+	public final Property<Boolean> enableVLCPlaylistView = new Property<>("EnableVLCPlaylistView", Boolean.TRUE).setDescription("Enables auto-generated VLC playlists of all of the media files on the current directory page.");
+	public final Property<Boolean> enableReadableFileViews = new Property<>("EnableReadableFileViews", Boolean.TRUE).setDescription("Enables a link to appear next to the file name of a file that cannot usually be viewed in the browser(i.e. *.rtf files).");
 	
-	public final Property<Boolean>	ignoreThumbsdbFiles						= new Property<>("IgnoreThumbsdbFiles", Boolean.TRUE).setDescription("Enables automatic exclusion of any \"Thumbs.db\" files.");
+	public final Property<Boolean> ignoreThumbsdbFiles = new Property<>("IgnoreThumbsdbFiles", Boolean.TRUE).setDescription("Enables automatic exclusion of any \"Thumbs.db\" files.");
 	
 	public final HashMap<String, Property<?>> getPropertiesAsHashMap() {
 		final HashMap<String, Property<?>> rtrn = new HashMap<>();
@@ -99,14 +114,17 @@ public final class DomainDirectory implements DisposableUUIDData {
 		return rtrn;
 	}
 	
-	public final DomainDirectory setValuesFromHashMap(HashMap<String, String> values) {
+	public final DomainDirectory setValuesFromHashMap(HashMap<String, String> values, ClientConnection reuse) {
 		for(Entry<String, String> entry : values.entrySet()) {
 			String pname = entry.getKey();
 			String value = entry.getValue();
 			if(pname.equalsIgnoreCase(this.folder.getName())) {
 				File check = new File(FilenameUtils.normalize(value));
-				if(check.exists()) {
+				if(check.isDirectory()) {
 					this.folder.setValue(check);
+					reuse.println("\t--- Domain \"" + this.getDomain() + "\"'s home directory is now: \"" + this.getDirectorySafe().getAbsolutePath() + "\"!");
+				} else {
+					reuse.println("\t--- Unable to set domain \"" + this.getDomain() + "\"'s home directory to: \"" + FilenameUtils.normalize(value) + "\"! Reason: File does not exist or is not a directory!");
 				}
 			} else if(pname.equalsIgnoreCase(this.serverName.getName())) {
 				this.serverName.setValue(value);
@@ -175,9 +193,9 @@ public final class DomainDirectory implements DisposableUUIDData {
 		return this;
 	}
 	
-	private final HashMap<String, String>	pathAliases	= new HashMap<>();
+	private final HashMap<String, String> pathAliases = new HashMap<>();
 	
-	private final HashMap<String, String>	mimeTypes	= new HashMap<>();
+	private final HashMap<String, String> mimeTypes = new HashMap<>();
 	
 	public static final DomainDirectory getDomainDirectoryFromUUID(String uuid) {
 		if(uuid == null || uuid.isEmpty()) {
@@ -205,13 +223,20 @@ public final class DomainDirectory implements DisposableUUIDData {
 	 * @return The associated data for the given domain, or null if it does not
 	 *         exist */
 	public static final DomainDirectory getDomainDirectoryFromDomainName(String domain) {
-		if(domain == null || domain.isEmpty()) {
-			throw new NullPointerException("Domain cannot be null!");
+		if(domain == null || domain.trim().isEmpty()) {
+			throw new NullPointerException("Domain cannot be null or empty!");
 		}
 		//loadAllDomainDirectoryDataFromFile();
 		for(DomainDirectory domainDirectory : getInstances()) {
 			if(domainDirectory.domain.getValue() != null && !domainDirectory.isTemporary) {
-				if(domainDirectory.domain.getValue().equalsIgnoreCase(domain)) {
+				String check = domainDirectory.domain.getValue();
+				if(check.equalsIgnoreCase(domain)) {
+					return domainDirectory;
+				} else if((check + ":" + JavaWebServer.listen_port).equalsIgnoreCase(domain)) {
+					return domainDirectory;
+				} else if((check + ":" + JavaWebServer.ssl_listen_port).equalsIgnoreCase(domain)) {
+					return domainDirectory;
+				} else if((check + ":" + JavaWebServer.admin_listen_port).equalsIgnoreCase(domain)) {
 					return domainDirectory;
 				}
 			}
@@ -228,20 +253,25 @@ public final class DomainDirectory implements DisposableUUIDData {
 	
 	/** @param domain The domain whose data will be returned
 	 * @return The associated data for the given domain */
-	public static DomainDirectory getOrCreateDomainDirectory(String domain) {
+	public static DomainDirectory getOrCreateDomainDirectory(String domain, ClientConnection reuse) {
+		if(domain == null || domain.trim().isEmpty()) {
+			throw new NullPointerException("Domain cannot be null or empty!");
+		}
 		DomainDirectory domainDirectory = getDomainDirectoryFromDomainName(domain);
 		if(domainDirectory == null) {
 			domainDirectory = new DomainDirectory(UUID.randomUUID(), JavaWebServer.homeDirectory, domain, JavaWebServer.SERVER_NAME, JavaWebServer.DEFAULT_FILE_NAME, JavaWebServer.defaultFontFace, JavaWebServer.DEFAULT_PAGE_ICON, JavaWebServer.DEFAULT_STYLESHEET);
 			domainDirectory.loadFromFile();
 			domainDirectory.saveToFile();
-			JavaWebServer.println("Just automaticaly created domain \"" + domainDirectory.getDomain() + "\" from requested non-existant: \"" + domain + "\"");
+			instances.add(domainDirectory);
+			if(reuse != null) {
+				reuse.println("Just automaticaly created domain \"" + domainDirectory.getDomain() + "\" from requested non-existant: \"" + domain + "\"");
+			}
 		}
 		return domainDirectory;
 	}
 	
 	private DomainDirectory(UUID uuid) {
 		this.uuid.setValue(uuid).lockValue();
-		instances.add(this);
 	}
 	
 	private DomainDirectory(UUID uuid, File folder, String domain, String serverName, String defaultFileName, String defaultFontFace, String defaultPageIcon, String defaultStylesheet) {
@@ -264,6 +294,14 @@ public final class DomainDirectory implements DisposableUUIDData {
 	/** @return The home directory for this domain */
 	public final File getDirectory() {
 		return this.folder.getValue();
+	}
+	
+	/** @return The home directory for this domain */
+	public final File getDirectorySafe() {
+		if(this.getDirectory() == null) {
+			return null;
+		}
+		return new File(FilenameUtils.normalize(this.getDirectory().getAbsolutePath()));
 	}
 	
 	/** @param folder The new home directory for this domain
@@ -300,7 +338,8 @@ public final class DomainDirectory implements DisposableUUIDData {
 		return this;
 	}
 	
-	/** @return The display name for this domain(used when viewing domains in the
+	/** @return The display name for this domain(used when viewing domains in
+	 *         the
 	 *         administration interface) */
 	public final String getDisplayName() {
 		return this.displayName.getValue();
@@ -385,7 +424,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 		if(stylesheetlink == null || stylesheetlink.startsWith("http")) {
 			return null;
 		}
-		return new File(FilenameUtils.normalize(this.getDirectory().getAbsolutePath() + File.separatorChar + stylesheetlink));
+		return new File(FilenameUtils.normalize(this.getDirectorySafe().getAbsolutePath() + File.separatorChar + stylesheetlink));
 	}
 	
 	/** @return Whether or not the default style sheet exists on the local
@@ -398,7 +437,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 		if(stylesheetlink.startsWith("http")) {
 			return true;
 		}
-		return new File(FilenameUtils.normalize(this.getDirectory().getAbsolutePath() + File.separatorChar + stylesheetlink)).exists();
+		return new File(FilenameUtils.normalize(this.getDirectorySafe().getAbsolutePath() + File.separatorChar + stylesheetlink)).exists();
 	}
 	
 	public static final File getStyleSheetFromFileSystem(String stylesheet) {
@@ -439,7 +478,8 @@ public final class DomainDirectory implements DisposableUUIDData {
 		return this;
 	}
 	
-	/** @return The html tag content that will be placed in the {@code <head>} tag
+	/** @return The html tag content that will be placed in the {@code <head>}
+	 *         tag
 	 *         of dynamically generated web pages from this domain(such as a
 	 *         directory page). */
 	public final String getPageHeaderContent() {
@@ -529,7 +569,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 	 *            first in the directory listing pages for this domain
 	 * @return This domain data */
 	public final DomainDirectory setListDirectoriesFirst(boolean listDirectoriesFirst) {
-		this.listDirectoriesFirst.setValue(listDirectoriesFirst);
+		this.listDirectoriesFirst.setValue(Boolean.valueOf(listDirectoriesFirst));
 		return this;
 	}
 	
@@ -565,7 +605,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 	}
 	
 	public final DomainDirectory setEnableMediaView(boolean enableMediaView) {
-		this.enableMediaView.setValue(enableMediaView);
+		this.enableMediaView.setValue(Boolean.valueOf(enableMediaView));
 		return this;
 	}
 	
@@ -574,7 +614,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 	}
 	
 	public final DomainDirectory setEnableMediaList(boolean enableMediaList) {
-		this.enableMediaList.setValue(enableMediaList);
+		this.enableMediaList.setValue(Boolean.valueOf(enableMediaList));
 		return this;
 	}
 	
@@ -583,7 +623,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 	}
 	
 	public final DomainDirectory setEnableXmlListView(boolean enableXmlListView) {
-		this.enableXmlListView.setValue(enableXmlListView);
+		this.enableXmlListView.setValue(Boolean.valueOf(enableXmlListView));
 		return this;
 	}
 	
@@ -592,7 +632,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 	}
 	
 	public final DomainDirectory setEnableFilterView(boolean enableFilterView) {
-		this.enableFilterView.setValue(enableFilterView);
+		this.enableFilterView.setValue(Boolean.valueOf(enableFilterView));
 		return this;
 	}
 	
@@ -601,7 +641,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 	}
 	
 	public final DomainDirectory setEnableSortView(boolean enableSortView) {
-		this.enableSortView.setValue(enableSortView);
+		this.enableSortView.setValue(Boolean.valueOf(enableSortView));
 		return this;
 	}
 	
@@ -610,7 +650,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 	}
 	
 	public final DomainDirectory setEnableVLCPlaylistView(boolean enableVLCPlaylistView) {
-		this.enableVLCPlaylistView.setValue(enableVLCPlaylistView);
+		this.enableVLCPlaylistView.setValue(Boolean.valueOf(enableVLCPlaylistView));
 		return this;
 	}
 	
@@ -619,7 +659,7 @@ public final class DomainDirectory implements DisposableUUIDData {
 	}
 	
 	public final DomainDirectory setEnableReadableVFileViews(boolean enableReadableFileViews) {
-		this.enableReadableFileViews.setValue(enableReadableFileViews);
+		this.enableReadableFileViews.setValue(Boolean.valueOf(enableReadableFileViews));
 		return this;
 	}
 	
@@ -628,17 +668,17 @@ public final class DomainDirectory implements DisposableUUIDData {
 	}
 	
 	public final DomainDirectory setIgnoreThumbsdbFiles(boolean ignoreThumbsdbFiles) {
-		this.ignoreThumbsdbFiles.setValue(ignoreThumbsdbFiles);
+		this.ignoreThumbsdbFiles.setValue(Boolean.valueOf(ignoreThumbsdbFiles));
 		return this;
 	}
 	
 	//======================================================================
 	
-	public final File getFileFromRequest(String requestedFilePath, HashMap<String, String> requestArguments) {
+	public final File getFileFromRequest(String requestedFilePath, HashMap<String, String> requestArguments, ClientConnection reuse) {
 		String administrateFileCheck = requestArguments.get("administrateFile");
 		final boolean administrateFile = administrateFileCheck != null ? (administrateFileCheck.equals("1") || administrateFileCheck.equalsIgnoreCase("true")) : false;
 		
-		File homeDirectory = this.getDirectory();
+		File homeDirectory = this.getDirectorySafe();
 		File requestedFile = new File(homeDirectory, StringUtils.decodeHTML(this.replaceAliasWithPath(requestedFilePath)));
 		if(requestedFilePath.equals("/")) {
 			if(!administrateFile) {
@@ -666,8 +706,10 @@ public final class DomainDirectory implements DisposableUUIDData {
 				File folder = new File(alias);
 				if(folder.exists()) {
 					requestedFile = new File(folder, this.replaceAliasWithPath(requestedFilePath));
-					JavaWebServer.println("New requested file: " + requestedFile.getAbsolutePath());
-					JavaWebServer.println("Requested file exists: " + requestedFile.exists());
+					if(reuse != null) {
+						reuse.println("New requested file: " + requestedFile.getAbsolutePath());
+						reuse.println("Requested file exists: " + requestedFile.exists());
+					}
 					if(!requestedFile.exists()) {
 						requestedFile = oldRequestedFile;
 					}
@@ -681,9 +723,11 @@ public final class DomainDirectory implements DisposableUUIDData {
 	 * @return The MIME-Type for the given extension, or the
 	 *         {@link MimeTypes#DEFAULT_MIME_TYPE} */
 	public final String getMimeTypeForExtension(String ext) {
+		ext = ext.startsWith(".") ? ext.substring(1) : ext;
 		//sun.net.www.MimeTable.loadTable().getContentTypeFor("name" + ext);
 		String mimeType = this.mimeTypes.get(ext);
 		if(mimeType == null) {
+			ext = "." + ext;
 			for(Entry<String, String> entry : MimeTypes.MIME_Types.entrySet()) {
 				if(entry.getKey().equalsIgnoreCase(ext)) {
 					mimeType = entry.getValue();
@@ -699,25 +743,25 @@ public final class DomainDirectory implements DisposableUUIDData {
 	/** @param alias The alias to use
 	 * @param path The path to be represented by the given alias
 	 * @return This domain data */
-	public final DomainDirectory setAlias(String alias, String path) {
+	public final DomainDirectory setAlias(String alias, String path, ClientConnection reuse) {
 		if(alias == null || alias.isEmpty()) {
 			throw new IllegalArgumentException("Alias cannot be null or empty!");
 		}
 		if(path == null || path.isEmpty()) {
 			throw new IllegalArgumentException("Path cannot be null or empty!");
 		}
-		JavaWebServer.println("\t\t*** New alias for domain \"" + this.domain + "\": " + alias + " = " + path);
+		reuse.println("\t\t*** New alias for domain \"" + this.domain + "\": " + alias + " = " + path);
 		this.pathAliases.put(alias, path);
 		return this;
 	}
 	
 	/** @param alias The alias to remove
 	 * @return This domain data */
-	public final DomainDirectory removeAlias(String alias) {
+	public final DomainDirectory removeAlias(String alias, ClientConnection reuse) {
 		String path = this.pathAliases.get(alias);
 		if(path != null && !path.isEmpty()) {
 			this.pathAliases.remove(alias);
-			JavaWebServer.println("*** The following alias for domain \"" + this.domain + "\" was just removed: " + alias + " = " + path);
+			reuse.println("*** The following alias for domain \"" + this.domain + "\" was just removed: " + alias + " = " + path);
 		}
 		return this;
 	}
@@ -965,9 +1009,9 @@ public final class DomainDirectory implements DisposableUUIDData {
 				}
 				try {
 					String fileName = FilenameUtils.getName(this.getDefaultPageIcon());
-					File favicon = new File(this.getDirectory(), fileName);
+					File favicon = new File(this.getDirectorySafe(), fileName);
 					if(!favicon.exists()) {
-						ResourceFactory.getResourceFromStreamAsFile(this.getDirectory(), "textures/icons/favicon.ico", fileName);
+						ResourceFactory.getResourceFromStreamAsFile(this.getDirectorySafe(), "textures/icons/favicon.ico", fileName);
 						if(favicon.exists()) {
 							if(this.getDisplayLogEntries()) {
 								JavaWebServer.println("\t\t\tCreated default page icon for domain \"" + this.domain.getValue() + "\"\r\n\t\t\tat: \"" + favicon.getAbsolutePath() + "\".");
@@ -1077,10 +1121,20 @@ public final class DomainDirectory implements DisposableUUIDData {
 					if(check == null) {
 						DomainDirectory domainDirectory = new DomainDirectory(uuid);
 						if(domainDirectory.loadFromFile()) {
-							rtrn.add(domainDirectory);
+							if(getDomainDirectoryFromDomainName(domainDirectory.getDomain()) == null) {
+								rtrn.add(domainDirectory);
+								instances.add(domainDirectory);
+							} else {
+								PrintUtil.println(" /!\\ \tWarning!\n/___\\\tDuplicate domain directory data detected: \"" + domainDirectory.toString() + "\"!");
+							}
 						}
 					} else {
 						check.loadFromFile();
+						if(getDomainDirectoryFromDomainName(check.getDomain()) != null) {
+							PrintUtil.println(" /!\\ \tWarning!\n/___\\\tDuplicate domain directory data detected: \"" + check.toString() + "\"!");
+						} else {
+							PrintUtil.println(" /!\\ \tWarning!\n/___\\\tThe following domain directory data uses a UUID that is already taken: \"" + check.toString() + "\"!");
+						}
 					}
 				}
 			}
@@ -1122,6 +1176,13 @@ public final class DomainDirectory implements DisposableUUIDData {
 		this.displayName.setValue(null);
 	}
 	
+	public final void add() {
+		if(instances.contains(this)) {
+			throw new IllegalStateException();
+		}
+		instances.add(this);
+	}
+	
 	public final void remove() {
 		instances.remove(this);
 	}
@@ -1132,6 +1193,17 @@ public final class DomainDirectory implements DisposableUUIDData {
 		temp.isTemporary = true;
 		temp.remove();
 		return temp;
+	}
+	
+	/** @return */
+	public String getURLPathPrefix() {
+		return FilenameUtils.normalize(FilenameUtils.getFullPathNoEndSeparator(FilenameUtils.normalize(this.getDirectorySafe().getAbsolutePath() + File.separatorChar)).replace('\\', '/'));
+	}
+	
+	@Override
+	public final String toString() {
+		new Throwable().printStackTrace();
+		return this.domain.getValue() + "(" + this.getUUID() + "): " + this.getDirectorySafe().getAbsolutePath();
 	}
 	
 }

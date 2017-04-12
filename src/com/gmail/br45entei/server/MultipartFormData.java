@@ -1,6 +1,5 @@
 package com.gmail.br45entei.server;
 
-import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.data.DisposableByteArrayInputStream;
 import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
 import com.gmail.br45entei.swt.Functions;
@@ -15,16 +14,16 @@ import java.util.Arrays;
 /** @author Brian_Entei */
 public class MultipartFormData {
 	
-	private final String					contentType;
-	private volatile ClientRequestStatus	status	= null;
+	private final String contentType;
+	//private volatile ClientStatus status = null;
 	
-	private final String					boundary;
-	private final String					boundaryNext;
-	private final String					boundaryEnd;
+	private final String boundary;
+	private final String boundaryNext;
+	//private final String					boundaryEnd;
 	
-	public MultipartFormData(InputStream in, String contentType, long contentLength, ClientRequestStatus status) throws IOException, IllegalArgumentException {
-		this.status = status;
-		this.status.setStatus("Parsing request data...");
+	public MultipartFormData(InputStream in, String contentType, long contentLength) throws IOException, IllegalArgumentException {//, ClientStatus status) throws IOException, IllegalArgumentException {
+		//this.status = status;
+		//this.status.setStatus("Parsing request data...");
 		this.contentType = contentType;
 		if(!this.contentType.toLowerCase().contains("multipart/form-data")) {
 			throw new IllegalArgumentException("Request is not of the type \"multipart/form-data\"!");
@@ -42,7 +41,7 @@ public class MultipartFormData {
 		}
 		this.boundary = boundary;
 		this.boundaryNext = "--" + this.boundary;
-		this.boundaryEnd = this.boundaryNext + "--";
+		//this.boundaryEnd = this.boundaryNext + "--";
 		long count = 0L;
 		
 		int read;
@@ -70,7 +69,7 @@ public class MultipartFormData {
 					data = null;
 					bais.close();
 					break;
-				}// else {//It's a 'next' boundary, meaning there's (more) data past this point, so we need to start a new form data.
+				} // else {//It's a 'next' boundary, meaning there's (more) data past this point, so we need to start a new form data.
 					//}
 					//TODO
 				
@@ -84,11 +83,14 @@ public class MultipartFormData {
 	
 	public static final class FormData {
 		
-		private final String								name;
-		private final String								fileName;
-		private volatile DisposableByteArrayOutputStream	fileData	= null;
+		private final ClientConnection reuse;
 		
-		public FormData(String name, String fileName) {
+		private final String name;
+		private final String fileName;
+		private volatile DisposableByteArrayOutputStream fileData = null;
+		
+		public FormData(String name, String fileName, ClientConnection reuse) {
+			this.reuse = reuse;
 			this.name = name;
 			this.fileName = fileName;
 		}
@@ -107,7 +109,7 @@ public class MultipartFormData {
 			byte[] data = this.fileData.getBytesAndDispose();
 			final int size = data.length;
 			File file = new File(folder, this.fileName);
-			JavaWebServer.println("\tWriting FormData \"" + this.name + "\"'s file named \"" + this.fileName + "\" to disk...");
+			this.reuse.println("\tWriting FormData \"" + this.name + "\"'s file named \"" + this.fileName + "\" to disk...");
 			try(FileOutputStream fos = new FileOutputStream(file, true)) {
 				fos.write(data, 0, data.length);
 				fos.flush();
@@ -120,18 +122,19 @@ public class MultipartFormData {
 				System.gc();
 			}
 			if(file.isFile()) {//If it exists and is a file.
-				JavaWebServer.println("\tOperation successful. Wrote " + Functions.humanReadableByteCount(size, true, 2) + " bytes to disk.");
+				this.reuse.println("\tOperation successful. Wrote " + Functions.humanReadableByteCount(size, true, 2) + " bytes to disk.");
 			} else {
-				JavaWebServer.println("\tOperation failed! File does not appear to exist.(???)");
+				this.reuse.println("\tOperation failed! File does not appear to exist.(???)");
 			}
 		}
 		
-		public final void writeToFileAndDispose(File folder) throws IOException {
+		public final void writeToFileAndDispose1(File folder) throws IOException {
 			this.writeToFile(folder);
-			this.dispose();
+			this.dispose1();
 		}
 		
-		public final void dispose() {
+		public final void dispose1() {
+			this.reuse.println("Multipart-FormData dispose()");
 			if(this.fileData != null) {
 				this.fileData.dispose();
 			}

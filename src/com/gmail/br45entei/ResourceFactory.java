@@ -100,8 +100,7 @@ public class ResourceFactory {
 				folderPath += File.separatorChar;
 			}
 			String entryName = folderPath + zipentry.getName();
-			entryName = entryName.replace('/', File.separatorChar);
-			entryName = entryName.replace('\\', File.separatorChar);
+			entryName = entryName.replace('/', File.separatorChar).replace('\\', File.separatorChar);
 			FileOutputStream fileoutputstream = null;
 			File newFile = new File(entryName);
 			if(zipentry.isDirectory()) {

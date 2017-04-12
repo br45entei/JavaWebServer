@@ -1,19 +1,109 @@
 package com.gmail.br45entei.util;
 
 import com.gmail.br45entei.JavaWebServer;
+import com.gmail.br45entei.server.ClientConnection;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.SocketAddress;
 import java.net.URL;
 import java.net.UnknownHostException;
 
 /** @author Brian_Entei */
 public class AddressUtil {
 	
-	private static String	ipAddress	= null;
+	private static String ipAddress = null;
 	
-	public static final String getValidHostFor(String host) {
+	public static final void main(String[] args) {
+		/*System.out.println("[0:0:0:0:0:0:0:0]:54879: " + isAddressInValidFormat("[0:0:0:0:0:0:0:0]:54879"));
+		System.out.println("[0:0:0:0:0sasdasdasd:0:0:0]:54879: " + isAddressInValidFormat("[0:0:0:0:0sasdasdasd:0:0:0]:54879"));
+		System.out.println("[0:0:0:0:0:0]:54879: " + isAddressInValidFormat("[0:0:0:0:0:0]:54879"));
+		System.out.println("[0:0:0:0:0:0:0:0]:54k879: " + isAddressInValidFormat("[0:0:0:0:0:0:0:0]:54k879"));
+		System.out.println("[0:0:0:0:0:0:0:0]:54879.txt: " + isAddressInValidFormat("[0:0:0:0:0:0:0:0]:54879.txt"));
+		System.out.println("107.129.213.19:54879: " + isAddressInValidFormat("107.129.213.19:54879"));
+		System.out.println("107.129.2s.19:54879: " + isAddressInValidFormat("107.129.2s.19:54879"));
+		System.out.println("107.1.2.1:54879: " + isAddressInValidFormat("107.1.2.1:54879"));
+		System.out.println("107.129.213.19:54k879: " + isAddressInValidFormat("107.129.213.19:54k879"));
+		System.out.println("107.129.213.19:54879.txt: " + isAddressInValidFormat("107.129.213.19:54879.txt"));
+		System.out.println("someRandomFile.txt: " + isAddressInValidFormat("someRandomFile.txt"));*/
+		System.out.println("[::1]:54879: " + isAddressInValidFormat("[::1]:54879"));
+		System.out.println(getClientAddressNoPort("[::1]"));
+		System.out.println(getClientAddressNoPort("[::1]:80"));
+	}
+	
+	public static final boolean isAddressInValidFormat(String address) {
+		String[] result = getValidHostFrom(address);
+		return result != null && result.length == 2;
+	}
+	
+	public static final String[] getValidHostFrom(String host) {
+		if(host == null || host.trim().isEmpty()) {
+			return null;
+		}
+		//if(LogUtils.secondaryOut == null) {
+		//	LogUtils.secondaryOut = LogUtils.ORIGINAL_SYSTEM_OUT;
+		//}
+		String port = "";
+		if(host.contains(":")) {
+			//LogUtils.secondaryOut.println("[0]");
+			//if(!host.contains("]")) {
+			//	port = host.substring(host.lastIndexOf(":"), host.length());
+			//	host = host.substring(0, host.lastIndexOf(":"));
+			//	LogUtils.secondaryOut.println("[1]: host: " + host + "; port: " + port);
+			//} else {
+			String originalHost = host;
+			host = getClientAddressNoPort(host);
+			//LogUtils.secondaryOut.println("[2]: host: " + host);
+			if(host.length() < originalHost.length()) {
+				port = originalHost.substring(host.length(), originalHost.length());
+				//LogUtils.secondaryOut.println("[3]: port: " + port);
+			} else {
+				//LogUtils.secondaryOut.println("[4]: port: " + port);
+			}
+			//}
+		} else {
+			//LogUtils.secondaryOut.println("[5]: host: " + host);
+		}
+		boolean isHostValid;
+		
+		try {
+			isHostValid = InetAddress.getByName(host) != null;
+			//LogUtils.secondaryOut.println("[6]: host is valid!");
+		} catch(Throwable ignored) {
+			isHostValid = false;
+			String originalHost = host;
+			try {
+				host = AddressUtil.getClientAddressNoPort(host);
+				isHostValid = InetAddress.getByName(host) != null;
+				//LogUtils.secondaryOut.println("[6_1]: host is valid now: " + host + "(was: \"" + originalHost + "\"...)!");
+			} catch(Throwable ignored1) {
+				host = originalHost;
+			}
+			if(!isHostValid) {
+				//LogUtils.secondaryOut.println("[7]: host is NOT valid: \"" + host + "\"!");
+			}
+		}
+		if(host.isEmpty() || !isHostValid) {
+			//LogUtils.secondaryOut.println("[8]: host is empty or not valid!");
+			return null;
+		}
+		//LogUtils.secondaryOut.println("[9]: host: " + host + "; port: " + port);
+		port = port.trim();
+		//LogUtils.secondaryOut.println("[10]: port: " + port);
+		port = port.startsWith(":") ? port.substring(1) : port;
+		//LogUtils.secondaryOut.println("[11]: port: " + port);
+		if(!port.isEmpty() && !StringUtil.isStrInt(port)) {
+			//LogUtils.secondaryOut.println("[12]: port is not empty and is an invalid integer!");
+			return null;
+		}
+		//LogUtils.secondaryOut.println("[13]: resulting host: \"" + host + "\"; port: \"" + port + "\";");
+		return new String[] {host, port};
+	}
+	
+	public static final String getValidHostFor(String host, ClientConnection reuse) {
 		if(host == null || host.trim().isEmpty()) {
 			return getIp();
 		}
@@ -38,7 +128,9 @@ public class AddressUtil {
 			isHostValid = false;
 		}
 		if(host.isEmpty() || !isHostValid) {
-			JavaWebServer.println("\t--- Detected unresolved host: " + host);//host = getIp();
+			if(reuse != null) {
+				reuse.println("\t--- Detected unresolved host: " + host);//host = getIp();
+			}
 		}
 		return host + port;
 	}
@@ -67,9 +159,26 @@ public class AddressUtil {
 		return ip;
 	}
 	
+	public static final String getClientAddress(Socket s) {
+		SocketAddress a = s.getRemoteSocketAddress();
+		if(a instanceof InetSocketAddress) {
+			InetSocketAddress addr = (InetSocketAddress) a;
+			String host = addr.getHostName();
+			int port = addr.getPort();
+			if(host.contains(":")) {//IPv6
+				return "[" + host + "]:" + port;
+			}
+			return host + ":" + port;
+		}
+		return getClientAddress((a != null) ? StringUtils.replaceOnce(a.toString(), "/", "") : "");
+	}
+	
 	public static final String getClientAddress(String address) {
 		if(address == null || address.isEmpty()) {
 			return "";
+		}
+		if(address.equals("[:1]")) {
+			throw new Error();
 		}
 		if(address.contains(":")) {
 			int index1 = address.indexOf(":");
@@ -78,20 +187,42 @@ public class AddressUtil {
 				return address;//IPv4
 			}
 			final boolean containsBrackets = address.contains("[") && address.contains("]");
-			return ((containsBrackets ? "" : "[") + address.substring(0, index2) + (containsBrackets ? "" : "]") + address.substring(index2, address.length())).replace("%10", "").replace("%11", "");//IPv6
+			if(!containsBrackets) {
+				return "[" + address.replace("%10", "").replace("%11", "") + "]";//IPv6 with no port supplied
+			}
+			//return ((containsBrackets ? "" : "[") + address.substring(0, index2) + (containsBrackets ? "" : "]") + address.substring(index2, address.length())).replace("%10", "").replace("%11", "");//IPv6
 		}
 		return address;
 	}
 	
+	public static final String getClientAddressNoPort(Socket s) {
+		return getClientAddressNoPort(getClientAddress(s));
+	}
+	
 	public static final String getClientAddressNoPort(String address) {
 		address = getClientAddress(address);
-		if(address.contains("]:")) {
+		if(address.contains(":")) {
+			int index1 = address.indexOf(":");
+			int index2 = address.lastIndexOf(":");
+			if(index1 == index2) {
+				return address.substring(0, address.lastIndexOf(":"));//IPv4
+			}
+			final boolean containsBrackets = address.contains("[") && address.contains("]");
+			if(!containsBrackets) {
+				return "[" + address.replace("%10", "").replace("%11", "") + "]";//IPv6 with no port supplied
+			}
+			if(address.contains("]:")) {
+				return address.substring(0, address.lastIndexOf("]:")) + "]";//IPv6
+			}
+			//return ((containsBrackets ? "" : "[") + address.substring(0, index2) + (containsBrackets ? "" : "]")).replace("%10", "").replace("%11", "");// + address.substring(index2, address.length())).replace("%10", "").replace("%11", "");//IPv6
+		}
+		/*if(address.contains("]:")) {
 			return address.substring(0, address.lastIndexOf("]:")) + "]";//IPv6
 		} else if(address.length() - address.replace(":", "").length() >= 2) {//(See if there are multiple colons, then remove any brackets and re-add them)
 			address = "[" + address.replace("[", "").replace("]", "") + "]";
 		} else if(address.contains(":")) {
 			return address.substring(0, address.lastIndexOf(":"));//IPv4
-		}
+		}*/
 		return address;
 	}
 	
@@ -125,7 +256,8 @@ public class AddressUtil {
 		return p;
 	}
 	
-	/** @return This machine's external ip address(or local, if the external could
+	/** @return This machine's external ip address(or local, if the external
+	 *         could
 	 *         not be determined) */
 	public static final String getIp() {
 		if(ipAddress == null) {
@@ -147,6 +279,19 @@ public class AddressUtil {
 			ipAddress = "";
 		}
 		return ipAddress;
+	}
+	
+	public static final String getLocalExternalHostName() {
+		String ip = getIp();
+		try {
+			if(ip.isEmpty()) {
+				return InetAddress.getLocalHost().getHostAddress();
+			}
+			return InetAddress.getByName(ip).getHostAddress();
+		} catch(UnknownHostException e) {
+			e.printStackTrace(LogUtils.ORIGINAL_SYSTEM_ERR);
+			return "localhost";
+		}
 	}
 	
 	/** @return One of the many available local ip addresses or the external ip
@@ -192,12 +337,23 @@ public class AddressUtil {
 		}
 	}
 	
+	public static final boolean isDomainExternalIp(String domain) {
+		if(domain == null || domain.isEmpty()) {
+			return false;
+		}
+		domain = domain.trim();
+		final String ip = getIp();
+		final String ipv6 = convertIpv4ToIpv6(ip);
+		return domain.equalsIgnoreCase(ip) || domain.equalsIgnoreCase(ip + ":" + JavaWebServer.listen_port) || domain.equalsIgnoreCase(ip + ":" + JavaWebServer.ssl_listen_port) || domain.equalsIgnoreCase(ip + ":" + JavaWebServer.admin_listen_port) || //
+				domain.equalsIgnoreCase(ipv6) || domain.equalsIgnoreCase(ipv6 + ":" + JavaWebServer.listen_port) || domain.equalsIgnoreCase(ipv6 + ":" + JavaWebServer.ssl_listen_port) || domain.equalsIgnoreCase(ipv6 + ":" + JavaWebServer.admin_listen_port);
+	}
+	
 	public static final boolean isDomainLocalHost(String domain) {
 		if(domain == null || domain.isEmpty()) {
 			return false;
 		}
 		domain = domain.trim();
-		if(domain.equals("127.0.0.1") || domain.equals("[::ffff:7f00:1]") || domain.equalsIgnoreCase("localhost") || domain.equals("[::1]") || domain.equals("[0:0:0:0:0:0:0:1]") || domain.equalsIgnoreCase(getIp()) || domain.equalsIgnoreCase(convertIpv4ToIpv6(getIp()))) {
+		if(domain.equals("127.0.0.1") || domain.equals("[::ffff:7f00:1]") || domain.equalsIgnoreCase("localhost") || domain.equals("[::1]") || domain.equals("[0:0:0:0:0:0:0:1]") || isDomainExternalIp(domain)) {
 			return true;
 		}
 		InetAddress localHost = null;

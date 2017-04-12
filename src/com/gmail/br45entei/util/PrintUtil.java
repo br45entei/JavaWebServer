@@ -1,20 +1,29 @@
 package com.gmail.br45entei.util;
 
+import com.gmail.br45entei.gui.Main;
+import com.gmail.br45entei.swt.Functions;
+import com.gmail.br45entei.util.writer.DualPrintWriter;
+import com.gmail.br45entei.util.writer.UnlockedOutputStreamWriter;
+
 import java.io.BufferedReader;
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.StringReader;
+import java.lang.Thread.State;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.regex.Pattern;
 
 /** @author Brian_Entei */
 public class PrintUtil {
-	protected static final HashMap<Thread, String>	printLogs						= new HashMap<>();
-	protected static final HashMap<Thread, String>	printErrLogs					= new HashMap<>();
 	
-	protected static final ArrayList<Thread>		printLogsToClearOnDisplay		= new ArrayList<>();
-	protected static final ArrayList<Thread>		printErrLogsToClearOnDisplay	= new ArrayList<>();
+	protected static final HashMap<Thread, String> printLogs = new HashMap<>();
+	protected static final HashMap<Thread, String> printErrLogs = new HashMap<>();
+	
+	protected static final ArrayList<Thread> printLogsToClearOnDisplay = new ArrayList<>();
+	protected static final ArrayList<Thread> printErrLogsToClearOnDisplay = new ArrayList<>();
 	
 	/** Clears out any logs that haven't been printed to the console yet for the
 	 * current thread
@@ -151,7 +160,7 @@ public class PrintUtil {
 		printLogs.put(thread, put);
 	}
 	
-	protected static final String	newLine	= "<NEW_LINE>";
+	protected static final String newLine = "<NEW_LINE>";
 	
 	public static final void flushStreams() {
 		getOut().flush();
@@ -174,6 +183,16 @@ public class PrintUtil {
 		printToConsole();
 	}
 	
+	/** Calls {@link #println(String)} and then calls {@link #printToConsole()}.
+	 * 
+	 * @param str The text to log
+	 * @see #println(String)
+	 * @see #printToConsole() */
+	public static final void printlnNow(String str, Thread t) {
+		println(str, t);
+		printToConsole();
+	}
+	
 	/** Adds the given text to the log queue for later printing with
 	 * {@link #printToConsole()}
 	 * 
@@ -185,8 +204,12 @@ public class PrintUtil {
 	 * @see #clearLogsBeforeDisplay() */
 	public static final void print(String str) {
 		Thread t = Thread.currentThread();
+		print(str, t);
+	}
+	
+	public static final void print(String str, Thread t) {
 		String s = getLogsForThread(t, true);
-		printLogs.put(t, s + LogUtils.getLoggerPrefix(LogUtils.LogType.INFO) + str);
+		printLogs.put(t, s + LogUtils.getLoggerPrefix(LogUtils.LogType.INFO, t) + str);
 	}
 	
 	/** Adds the given text(appended with a new line) to the log queue for later
@@ -202,7 +225,166 @@ public class PrintUtil {
 		print(str + newLine);
 	}
 	
-	private static boolean	isPrintlning	= false;
+	public static final void println(String str, Thread t) {
+		print(str + newLine, t);
+	}
+	
+	public static final String getResultingPrint(String str) {
+		if(str.contains("\n")) {
+			String rtrn = "";
+			String[] split = str.split(Pattern.quote("\n"));
+			for(int i = 0; i < split.length; i++) {
+				String line = split[i];
+				if(line.endsWith("\r") && line.length() > 1) {
+					line = line.substring(0, line.length() - 1);
+				}
+				if(line.trim().isEmpty()) {
+					continue;
+				}
+				rtrn += LogUtils.getLoggerPrefix(LogUtils.LogType.INFO) + line + ((i + 1) == split.length ? "" : "\r\n");
+			}
+			/*try(BufferedReader br = new BufferedReader(new StringReader(str))) {
+				String line;
+				while((line = br.readLine()) != null) {
+					if(line.endsWith("\r") && line.length() > 1) {
+						line = line.substring(0, line.length() - 1);
+					}
+					if(line.trim().isEmpty()) {
+						continue;
+					}
+					rtrn += LogUtils.getLoggerPrefix(LogUtils.LogType.INFO) + line + (br.ready() ? "\r\n" : "");
+				}
+			} catch(Throwable wtf) {
+				wtf.printStackTrace();
+			}*/
+			return rtrn;
+		}
+		return str.trim().isEmpty() ? "" : LogUtils.getLoggerPrefix(LogUtils.LogType.INFO) + str;
+	}
+	
+	public static final String getResultingPrintln(String str) {
+		return PrintUtil.getResultingPrint(str) + "\n";
+	}
+	
+	public static final String getResultingPrint(String str, Thread t) {
+		if(str.contains("\n")) {
+			String rtrn = "";
+			String[] split = str.split(Pattern.quote("\n"));
+			for(int i = 0; i < split.length; i++) {
+				String line = split[i];
+				if(line.endsWith("\r") && line.length() > 1) {
+					line = line.substring(0, line.length() - 1);
+				}
+				if(line.trim().isEmpty()) {
+					continue;
+				}
+				rtrn += LogUtils.getLoggerPrefix(LogUtils.LogType.INFO, t) + line + ((i + 1) == split.length ? "" : "\r\n");
+			}
+			/*try(BufferedReader br = new BufferedReader(new StringReader(str))) {
+				String line;
+				while((line = br.readLine()) != null) {
+					if(line.endsWith("\r") && line.length() > 1) {
+						line = line.substring(0, line.length() - 1);
+					}
+					if(line.trim().isEmpty()) {
+						continue;
+					}
+					rtrn += LogUtils.getLoggerPrefix(LogUtils.LogType.INFO) + line + (br.ready() ? "\r\n" : "");
+				}
+			} catch(Throwable wtf) {
+				wtf.printStackTrace();
+			}*/
+			return rtrn;
+		}
+		return str.trim().isEmpty() ? "" : LogUtils.getLoggerPrefix(LogUtils.LogType.INFO, t) + str;
+	}
+	
+	public static final String getResultingPrintln(String str, Thread t) {
+		return PrintUtil.getResultingPrint(str, t) + "\n";
+	}
+	
+	public static final String getResultingPrintErr(String str) {
+		if(str.contains("\n")) {
+			String rtrn = "";
+			String[] split = str.split(Pattern.quote("\n"));
+			for(int i = 0; i < split.length; i++) {
+				String line = split[i];
+				if(line.endsWith("\r") && line.length() > 1) {
+					line = line.substring(0, line.length() - 1);
+				}
+				if(line.trim().isEmpty()) {
+					continue;
+				}
+				rtrn += LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR) + line + ((i + 1) == split.length ? "" : "\r\n");
+			}
+			/*try(BufferedReader br = new BufferedReader(new StringReader(str))) {
+				String line;
+				while((line = br.readLine()) != null) {
+					if(line.endsWith("\r") && line.length() > 1) {
+						line = line.substring(0, line.length() - 1);
+					}
+					if(line.trim().isEmpty()) {
+						continue;
+					}
+					rtrn += LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR) + line + (br.ready() ? "\r\n" : "");
+				}
+			} catch(Throwable wtf) {
+				wtf.printStackTrace();
+			}*/
+			return rtrn;
+		}
+		return str.trim().isEmpty() ? "" : LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR) + str;
+	}
+	
+	public static final String getResultingPrintErrln(String str) {
+		return getResultingPrintErr(str) + "\n";
+	}
+	
+	public static final String getResultingPrintErr(String str, Thread t) {
+		if(str.contains("\n")) {
+			String rtrn = "";
+			String[] split = str.split(Pattern.quote("\n"));
+			for(int i = 0; i < split.length; i++) {
+				String line = split[i];
+				if(line.endsWith("\r") && line.length() > 1) {
+					line = line.substring(0, line.length() - 1);
+				}
+				if(line.trim().isEmpty()) {
+					continue;
+				}
+				rtrn += LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR, t) + line + ((i + 1) == split.length ? "" : "\r\n");
+			}
+			/*try(BufferedReader br = new BufferedReader(new StringReader(str))) {
+				String line;
+				while((line = br.readLine()) != null) {
+					if(line.endsWith("\r") && line.length() > 1) {
+						line = line.substring(0, line.length() - 1);
+					}
+					if(line.trim().isEmpty()) {
+						continue;
+					}
+					rtrn += LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR) + line + (br.ready() ? "\r\n" : "");
+				}
+			} catch(Throwable wtf) {
+				wtf.printStackTrace();
+			}*/
+			return rtrn;
+		}
+		return str.trim().isEmpty() ? "" : LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR, t) + str;
+	}
+	
+	public static final String getResultingPrintErrln(String str, Thread t) {
+		return getResultingPrintErr(str, t) + "\n";
+	}
+	
+	public static final String getUnprintedLogs(LogUtils.LogType type) {
+		if(type == LogUtils.LogType.ERROR) {
+			return getErrLogsForThread(Thread.currentThread(), true);
+		}
+		return getLogsForThread(Thread.currentThread(), true);
+	}
+	
+	private static boolean isPrintlning = false;
 	
 	/** Prints all logs for the current thread to the console in the order that
 	 * they were added.
@@ -267,6 +449,17 @@ public class PrintUtil {
 	 * @param str The text to log
 	 * @see #printErrln(String)
 	 * @see #printErrToConsole() */
+	public static final void printErrlnNow(String str, Thread t) {
+		printErrln(str, t);
+		printErrToConsole();
+	}
+	
+	/** Calls {@link #printErrln(String)} and then calls
+	 * {@link #printErrToConsole()}.
+	 * 
+	 * @param str The text to log
+	 * @see #printErrln(String)
+	 * @see #printErrToConsole() */
 	public static final void printErrlnNow(String str) {
 		printErrln(str);
 		printErrToConsole();
@@ -284,7 +477,21 @@ public class PrintUtil {
 	public static final void printErr(String str) {
 		Thread t = Thread.currentThread();
 		String s = getErrLogsForThread(t, true);
-		printErrLogs.put(t, s + LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR) + str);
+		printErrLogs.put(t, s + LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR, t) + str);
+	}
+	
+	/** Adds the given text to the error log queue for later printing with
+	 * {@link #printErrToConsole()}
+	 * 
+	 * @param str The text to log
+	 * @see #printErrln(String)
+	 * @see #printErrlnNow(String)
+	 * @see #printErrToConsole()
+	 * @see #clearErrLogs()
+	 * @see #clearErrLogsBeforeDisplay() */
+	public static final void printErr(String str, Thread t) {
+		String s = getErrLogsForThread(t, true);
+		printErrLogs.put(t, s + LogUtils.getLoggerPrefix(LogUtils.LogType.ERROR, t) + str);
 	}
 	
 	/** Adds the given text(appended with a new line) to the error log queue for
@@ -300,7 +507,20 @@ public class PrintUtil {
 		printErr(str + newLine);
 	}
 	
-	private static boolean	isPrintErrlning	= false;
+	/** Adds the given text(appended with a new line) to the error log queue for
+	 * later printing with {@link #printErrToConsole()}
+	 * 
+	 * @param str The text to log
+	 * @see #printErr(String)
+	 * @see #printErrlnNow(String)
+	 * @see #printErrToConsole()
+	 * @see #clearErrLogs()
+	 * @see #clearErrLogsBeforeDisplay() */
+	public static final void printErrln(String str, Thread t) {
+		printErr(str + newLine, t);
+	}
+	
+	private static boolean isPrintErrlning = false;
 	
 	/** Prints all error logs for the current thread to the console in the order
 	 * that they were added.
@@ -338,25 +558,29 @@ public class PrintUtil {
 	
 	//=============================================
 	
-	private static PrintWriter	out;
-	private static PrintWriter	err;
+	private static DualPrintWriter out;
+	private static DualPrintWriter err;
 	
-	private static final PrintWriter getOut() {
+	@SuppressWarnings("resource")
+	private static final DualPrintWriter getOut() {
 		if(out == null) {
-			out = new PrintWriter(new OutputStreamWriter(LogUtils.getOut()/*System.out*/, StandardCharsets.UTF_8), true);
+			out = new DualPrintWriter(new UnlockedOutputStreamWriter(LogUtils.getOut()/*System.out*/, StandardCharsets.UTF_8), true);
+			out.setLineSeparator("\n");
 		}
 		return out;
 	}
 	
-	private static final PrintWriter getErr() {
+	@SuppressWarnings("resource")
+	private static final DualPrintWriter getErr() {
 		if(err == null) {
-			err = new PrintWriter(new OutputStreamWriter(LogUtils.getErr()/*System.err*/, StandardCharsets.UTF_8), true);
+			err = new DualPrintWriter(new UnlockedOutputStreamWriter(LogUtils.getErr()/*System.err*/, StandardCharsets.UTF_8), true);
+			err.setLineSeparator("\n");
 		}
 		return err;
 	}
 	
-	private static PrintWriter	secondaryOut;
-	private static PrintWriter	secondaryErr;
+	private static PrintWriter secondaryOut;
+	private static PrintWriter secondaryErr;
 	
 	public static final PrintWriter getSecondaryOut() {
 		return secondaryOut;
@@ -392,32 +616,141 @@ public class PrintUtil {
 	
 	//==========================
 	
-	private static final void printlnToWriter(PrintWriter out, PrintWriter secondaryOut, LogUtils.LogType logType, String str) {
-		if(str.contains("\n")) {
-			try(BufferedReader br = new BufferedReader(new StringReader(str))) {
-				String line;
-				while((line = br.readLine()) != null) {
-					printlnToWriter(out, secondaryOut, logType, line);
-				}
-			} catch(Throwable wtf) {
-				wtf.printStackTrace();
+	private static final ConcurrentHashMap<DualPrintWriter, Boolean> printMap = new ConcurrentHashMap<>();
+	private static final ConcurrentLinkedDeque<Thread> threadsWaitingToPrintln = new ConcurrentLinkedDeque<>();
+	
+	private static final boolean isPrintWriterPrinting(DualPrintWriter out) {
+		return printMap.get(out) == Boolean.TRUE;
+	}
+	
+	private static final void markPrintWriterAsPrinting(DualPrintWriter out, boolean printing) {
+		if(printing) {
+			if(!isPrintWriterPrinting(out)) {
+				printMap.put(out, Boolean.TRUE);
+				return;
 			}
-		} else {
-			if(!str.trim().isEmpty()) {
-				str = LogUtils.doesStrStartWithLoggerPrefix(str) ? str : LogUtils.getLoggerPrefix(logType) + str;
-				out.println(LogUtils.carriageReturn() + str);
-				if(!LogUtils.doesStrStartWithLoggerPrefix(str)) {
+			//throw new Error("[0] This isn't supposed to be able to happen!");
+			//... and yet: 
+			/*java.lang.Error: [0] This isn't supposed to be able to happen!
+			at com.gmail.br45entei.util.PrintUtil.markPrintWriterAsPrinting(PrintUtil.java:496)
+			at com.gmail.br45entei.util.PrintUtil.printlnToWriter(PrintUtil.java:565)
+			at com.gmail.br45entei.util.PrintUtil.printlnToWriter(PrintUtil.java:472)
+			at com.gmail.br45entei.server.ClientConnection.printLogsNow(ClientConnection.java:155)
+			at com.gmail.br45entei.JavaWebServer.printResultLogs(JavaWebServer.java:1949)
+			at com.gmail.br45entei.JavaWebServer.printRequestLogsAndGC(JavaWebServer.java:1988)
+			at com.gmail.br45entei.JavaWebServer$7.run(JavaWebServer.java:2166)
+			at java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+			at java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+			at java.lang.Thread.run(Unknown Source)*/
+		}
+		if(isPrintWriterPrinting(out)) {
+			printMap.remove(out);
+			return;
+		}
+		throw new Error("[1] This isn't supposed to be able to happen!");
+	}
+	
+	private static final void performPrintln(DualPrintWriter out, PrintWriter secondaryOut, LogUtils.LogType logType, String str, boolean bulk) {
+		if(!str.trim().isEmpty()) {
+			final boolean doesStrStartWithLoggerPrefix = LogUtils.doesStrStartWithLoggerPrefix(str);
+			str = doesStrStartWithLoggerPrefix ? str : LogUtils.getLoggerPrefix(logType) + str;
+			out.println(LogUtils.carriageReturn() + str);
+			if(!doesStrStartWithLoggerPrefix) {
+				if(!bulk) {
 					LogUtils.printConsole();
-					if(secondaryOut != null) {
-						secondaryOut.println(str);
-					}
-				} else {
+				}
+				if(secondaryOut != null) {
+					secondaryOut.println(str);
+				}
+			} else {
+				if(!bulk) {
 					LogUtils.printConsole();
-					if(secondaryOut != null) {
-						secondaryOut.println(str);
+				}
+				if(secondaryOut != null) {
+					secondaryOut.println(str);
+				}
+			}
+		}
+	}
+	
+	private static final void waitYourTurnMrThread() {
+		while(isPrintWriterPrinting(out)) {
+			if(Thread.currentThread() == Main.getSWTThread()) {
+				Main.getInstance().runLoop();
+			} else {
+				Functions.sleep();
+			}
+		}
+	}
+	
+	private static final void waitForOtherThreadsToFinish() {
+		long lastSecond = System.currentTimeMillis();
+		while(threadsWaitingToPrintln.size() > 1) {
+			long now = System.currentTimeMillis();
+			if(now - lastSecond >= 1000L) {
+				lastSecond = now;
+				for(Thread thread : threadsWaitingToPrintln) {
+					if(thread.getState() == State.TERMINATED) {
+						threadsWaitingToPrintln.remove(thread);
 					}
 				}
 			}
+			if(Thread.currentThread() == threadsWaitingToPrintln.peek()) {
+				threadsWaitingToPrintln.remove(Thread.currentThread());
+				return;
+			}
+			if(Thread.currentThread() == Main.getSWTThread()) {
+				Main.getInstance().runLoop();
+			} else {
+				Functions.sleep();
+			}
+		}
+	}
+	
+	private static final void printlnToWriter(DualPrintWriter out, PrintWriter secondaryOut, LogUtils.LogType logType, String str) {
+		if(isPrintWriterPrinting(out)) {
+			threadsWaitingToPrintln.addLast(Thread.currentThread());
+			waitYourTurnMrThread();
+			//threadsWaitingToPrintln.remove(Thread.currentThread());
+		}
+		try {
+			waitForOtherThreadsToFinish();
+			markPrintWriterAsPrinting(out, true);
+			if(str.contains("\n")) {
+				try(BufferedReader br = new BufferedReader(new StringReader(str))) {
+					String line;
+					while((line = br.readLine()) != null) {
+						if(line.endsWith("\r") && line.length() > 1) {
+							line = line.substring(0, line.length() - 1);
+						}
+						if(line.trim().isEmpty()) {
+							continue;
+						}
+						performPrintln(out, secondaryOut, logType, line.trim(), true);
+						LogUtils.printConsole();
+					}
+				} catch(Throwable wtf) {
+					wtf.printStackTrace();
+				}
+			} else {
+				performPrintln(out, secondaryOut, logType, str, false);
+			}
+		} catch(Error | RuntimeException e) {
+			e.printStackTrace(LogUtils.ORIGINAL_SYSTEM_ERR);
+		} catch(Throwable e) {
+			e.printStackTrace(LogUtils.ORIGINAL_SYSTEM_ERR);
+		}
+		try {
+			if(isPrintWriterPrinting(out)) {
+				markPrintWriterAsPrinting(out, false);
+			}
+		} catch(Error | RuntimeException e) {
+			e.printStackTrace(LogUtils.ORIGINAL_SYSTEM_ERR);
+		} catch(Throwable e) {
+			e.printStackTrace(LogUtils.ORIGINAL_SYSTEM_ERR);
+		}
+		if(threadsWaitingToPrintln.contains(Thread.currentThread())) {
+			threadsWaitingToPrintln.remove(Thread.currentThread());
 		}
 	}
 	
@@ -426,7 +759,7 @@ public class PrintUtil {
 	 * 
 	 * @param e The Throwable to print */
 	public static final void printThrowable(Throwable e) {
-		e.printStackTrace(getErr());
+		getErr().println(StringUtil.throwableToStr(e, "\n"));//e.printStackTrace(getErr());
 		LogUtils.printConsole();
 		if(secondaryErr != null) {
 			e.printStackTrace(secondaryErr);

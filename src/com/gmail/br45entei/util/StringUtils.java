@@ -1,7 +1,7 @@
 package com.gmail.br45entei.util;
 
-import com.gmail.br45entei.JavaWebServer;
 import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
+import com.gmail.br45entei.server.ClientConnection;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -14,10 +14,12 @@ import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
+import java.security.SecureRandom;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -39,21 +41,22 @@ import javax.swing.text.Document;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.text.rtf.RTFEditorKit;
 
+import org.apache.commons.lang3.StringEscapeUtils;
+import org.mozilla.universalchardet.UniversalDetector;
+
 import nl.siegmann.epublib.domain.Book;
 import nl.siegmann.epublib.domain.Resource;
 import nl.siegmann.epublib.epub.EpubReader;
 
-import org.apache.commons.lang3.StringEscapeUtils;
-import org.mozilla.universalchardet.UniversalDetector;
-
 /** @author Brian_Entei */
 public strictfp class StringUtils {
-	private static final Random	random	= new Random();
+	private static final SecureRandom random = new SecureRandom();
 	
 	/** @param string The String to hash
 	 * @return The resulting hash
 	 * @see <a
-	 *      href="http://stackoverflow.com/a/1660613/2398263">stackoverflow.com</a> */
+	 *      href=
+	 *      "http://stackoverflow.com/a/1660613/2398263">stackoverflow.com</a> */
 	public static final long hash(String string) {
 		long h = 1125899906842597L; // prime
 		int len = string.length();
@@ -105,18 +108,18 @@ public strictfp class StringUtils {
 			return "";
 		}
 		if(exclusions == null) {
-			return (includeURLFormatting ? "?" : "") + stringArrayToString(stringMapToStringArray(map, '=', '&'));
+			return (includeURLFormatting ? "?" : "") + stringArrayToString(stringMapToStringArray(map, '=', includeURLFormatting ? '&' : ' '));
 		}
 		Map<String, String> copy = new HashMap<>(map);
 		for(String exclusion : exclusions) {
 			copy.remove(exclusion);
 		}
-		return (includeURLFormatting ? "?" : "") + stringArrayToString(stringMapToStringArray(copy, '=', '&'));
+		return (includeURLFormatting ? "?" : "") + stringArrayToString(stringMapToStringArray(copy, '=', includeURLFormatting ? '&' : ' '));
 	}
 	
-	public static final String		cacheValidatorTimePattern	= "EEE, dd MMM yyyy HH:mm:ss 'GMT'";
-	public static final Locale		cacheValidatorTimeLocale	= Locale.US;
-	public static final TimeZone	cacheValidatorTimeFormat	= TimeZone.getTimeZone("GMT");
+	public static final String cacheValidatorTimePattern = "EEE, dd MMM yyyy HH:mm:ss 'GMT'";
+	public static final Locale cacheValidatorTimeLocale = Locale.US;
+	public static final TimeZone cacheValidatorTimeFormat = TimeZone.getTimeZone("GMT");
 	
 	public static final void main(String[] args) {
 		/*String test = "<html>\r\n"//
@@ -300,7 +303,8 @@ public strictfp class StringUtils {
 		return rtrn;
 	}
 	
-	/** @param millis The amount of milliseconds that have passed since midnight,
+	/** @param millis The amount of milliseconds that have passed since
+	 *            midnight,
 	 *            January 1, 1970
 	 * @return The resulting string in cache format */
 	public static final String getCacheTime(long millis) {
@@ -334,12 +338,12 @@ public strictfp class StringUtils {
 		return compressedBytes;
 	}
 	
-	public static final byte[] compressString(String str, String charsetName) throws IOException {
+	public static final byte[] compressString(String str, String charsetName, ClientConnection reuse) throws IOException {
 		if(str == null || str.length() == 0) {
 			return new byte[0];
 		}
 		if(str.length() < 33) {
-			JavaWebServer.printErrln("Warning! Compressing a string whose length is less than ~33 bytes results in a compressed string whose length is greater than the original string!");
+			reuse.printErrln("Warning! Compressing a string whose length is less than ~33 bytes results in a compressed string whose length is greater than the original string!");
 		}
 		ByteArrayOutputStream out = new ByteArrayOutputStream(str.length());
 		GZIPOutputStream gzip = new GZIPOutputStream(out);
@@ -350,7 +354,6 @@ public strictfp class StringUtils {
 		return compressedBytes;
 	}
 	
-	@SuppressWarnings("resource")
 	public static final String getTextFileAsString(File file) throws IOException {
 		BufferedReader br = new BufferedReader(new FileReader(file));
 		String rtrn = "";
@@ -495,7 +498,7 @@ public strictfp class StringUtils {
 		return false;
 	}
 	
-	public static boolean containsIgnoreCase(Set<String> list, String str) {
+	public static boolean containsIgnoreCase(Collection<String> list, String str) {
 		if(list != null && !list.isEmpty()) {
 			for(String s : new ArrayList<>(list)) {
 				if(s != null && s.equalsIgnoreCase(str)) {
@@ -506,7 +509,7 @@ public strictfp class StringUtils {
 		return false;
 	}
 	
-	public static String getStringInList(Set<String> list, String str) {
+	public static String getStringInList(Collection<String> list, String str) {
 		if(list != null && !list.isEmpty()) {
 			for(String s : new ArrayList<>(list)) {
 				if(s != null && s.equalsIgnoreCase(str)) {
@@ -561,7 +564,7 @@ public strictfp class StringUtils {
 		}
 	}
 	
-	private static final HashMap<String, String>	urlChars	= new HashMap<>();
+	private static final HashMap<String, String> urlChars = new HashMap<>();
 	
 	static {
 		urlChars.put("%20", " ");
@@ -751,31 +754,31 @@ public strictfp class StringUtils {
 	}
 	
 	/** Compare Strings in alphabetical order */
-	public static final Comparator<String>	ALPHABETICAL_ORDER	= new Comparator<String>() {
-																	@Override
-																	public int compare(String str1, String str2) {
-																		if(str1 == null || str2 == null) {
-																			return Integer.MAX_VALUE;
-																		}
-																		int res = String.CASE_INSENSITIVE_ORDER.compare(str1, str2);
-																		if(res == 0) {
-																			res = str1.compareTo(str2);
-																		}
-																		return res;
-																	}
-																};
+	public static final Comparator<String> ALPHABETICAL_ORDER = new Comparator<String>() {
+		@Override
+		public int compare(String str1, String str2) {
+			if(str1 == null || str2 == null) {
+				return Integer.MAX_VALUE;
+			}
+			int res = String.CASE_INSENSITIVE_ORDER.compare(str1, str2);
+			if(res == 0) {
+				res = str1.compareTo(str2);
+			}
+			return res;
+		}
+	};
 	
 	//==========================
-	protected static final long				MILLISECOND			= 1L;
-	protected static final long				SECOND				= 1000L;
-	protected static final long				MINUTE				= 60 * SECOND;
-	protected static final long				HOUR				= 60 * MINUTE;
-	protected static final long				DAY					= 24 * HOUR;
-	protected static final long				WEEK				= 7 * DAY;
-	protected static final long				YEAR				= 365 * DAY;	//(long) (365.2395 * DAY);
-	protected static final long				DECADE				= 10 * YEAR;
-	protected static final long				CENTURY				= 10 * DECADE;
-	protected static final long				MILLENNIUM			= 10 * CENTURY;
+	protected static final long MILLISECOND = 1L;
+	protected static final long SECOND = 1000L;
+	protected static final long MINUTE = 60 * SECOND;
+	protected static final long HOUR = 60 * MINUTE;
+	protected static final long DAY = 24 * HOUR;
+	protected static final long WEEK = 7 * DAY;
+	protected static final long YEAR = 365 * DAY; //(long) (365.2395 * DAY);
+	protected static final long DECADE = 10 * YEAR;
+	protected static final long CENTURY = 10 * DECADE;
+	protected static final long MILLENNIUM = 10 * CENTURY;
 	
 	/** @param millis The time in milliseconds
 	 * @return The time, in String format */

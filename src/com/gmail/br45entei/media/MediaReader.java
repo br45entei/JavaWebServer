@@ -1,6 +1,8 @@
 package com.gmail.br45entei.media;
 
 import com.gmail.br45entei.data.DisposableByteArrayOutputStream;
+import com.gmail.br45entei.server.HTTPClientRequest;
+import com.gmail.br45entei.util.LogUtils;
 
 import java.awt.image.BufferedImage;
 import java.io.Closeable;
@@ -25,6 +27,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.jaudiotagger.audio.AudioFile;
 import org.jaudiotagger.audio.AudioFileIO;
 import org.jaudiotagger.audio.exceptions.CannotReadException;
+import org.jaudiotagger.audio.exceptions.CannotReadVideoException;
 import org.jaudiotagger.audio.exceptions.InvalidAudioFrameException;
 import org.jaudiotagger.audio.exceptions.ReadOnlyFileException;
 import org.jaudiotagger.tag.TagException;
@@ -33,11 +36,11 @@ import org.jaudiotagger.tag.images.Artwork;
 /** @author Brian_Entei */
 public class MediaReader {
 	
-	private static final PrintStream						out;
-	private static final PrintStream						err;
-	private static final PrintStream						dumpOut;
-	private static final PrintStream						dumpErr;
-	private static final DisposableByteArrayOutputStream	dOut;
+	private static final PrintStream out;
+	private static final PrintStream err;
+	private static final PrintStream dumpOut;
+	private static final PrintStream dumpErr;
+	private static final DisposableByteArrayOutputStream dOut;
 	
 	static {
 		out = System.out;
@@ -91,10 +94,21 @@ public class MediaReader {
 		disableLogging();
 		System.setOut(dumpOut);
 		System.setErr(dumpErr);
-		AudioFile afile = AudioFileIO.read(file);
-		MediaInfo rtrn = afile == null ? null : new MediaInfo(afile, getArtwork);
+		MediaInfo rtrn = null;
+		Throwable exception = null;
+		try {
+			AudioFile afile = AudioFileIO.read(file);
+			rtrn = afile == null ? null : new MediaInfo(afile, getArtwork);
+		} catch(Throwable e) {
+			exception = e;
+		}
 		System.setOut(out);
 		System.setErr(err);
+		if(exception != null) {
+			if(!(exception instanceof CannotReadVideoException) || HTTPClientRequest.debug) {
+				throw exception;
+			}
+		}
 		return rtrn;
 	}
 	
@@ -108,8 +122,19 @@ public class MediaReader {
 	 *             data from the given file */
 	public static final synchronized MediaInfo readFile(File file, boolean getArtwork) throws Throwable {
 		dOut.dispose();//Clears out any old errors that don't have anything to do with this(they'll show up at the end if they aren't cleared here)
-		MediaInfo rtrn = readFileNoDispose(file, getArtwork);
+		MediaInfo rtrn = null;
+		Throwable exception = null;
+		try {
+			rtrn = readFileNoDispose(file, getArtwork);
+		} catch(Throwable e) {
+			if(!(e instanceof CannotReadVideoException) || HTTPClientRequest.debug) {
+				exception = e;
+			}
+		}
 		dOut.dispose();
+		if(exception != null) {
+			throw exception;
+		}
 		return rtrn;
 	}
 	
@@ -207,8 +232,10 @@ public class MediaReader {
 				ImageIO.write(bi, "png", baos);
 			}
 		} catch(Throwable e) {
-			System.err.print("Unable to read file's image data: ");
-			e.printStackTrace();
+			if(HTTPClientRequest.debug) {
+				LogUtils.ORIGINAL_SYSTEM_ERR.print("Unable to read file's image data: ");
+				e.printStackTrace(LogUtils.ORIGINAL_SYSTEM_ERR);
+			}
 		}
 		final byte[] data = baos.toByteArray();
 		baos.close();
@@ -230,11 +257,13 @@ public class MediaReader {
 			String filePath = FilenameUtils.normalize(file.getAbsolutePath());
 			homeDirectory = homeDirectory == null ? null : FilenameUtils.normalize(homeDirectory);
 			final String requestedFilePath = homeDirectory == null ? "" : StringUtils.replacePattern(filePath, "(?i)" + Pattern.quote(homeDirectory), "/").replace("\\", "/").replace("//", "/");
-			
+			dOut.dispose();//Clears out any old errors that don't have anything to do with this(they'll show up at the end if they aren't cleared here)
 			try {
 				info = readFileNoDispose(file, homeDirectory != null);
 			} catch(Throwable e) {
-				e.printStackTrace();
+				if(HTTPClientRequest.debug) {
+					e.printStackTrace(LogUtils.ORIGINAL_SYSTEM_ERR);
+				}
 			}
 			if(info != null) {
 				success = true;
@@ -262,19 +291,19 @@ public class MediaReader {
 	/** @author Brian_Entei */
 	public static final class MediaArtwork implements Closeable {
 		
-		private volatile boolean	isDisposed	= false;
+		private volatile boolean isDisposed = false;
 		
 		/** The album artwork, in image/png format(converted from BufferedImage
 		 * using
 		 * ImageIO; thanks to <a
 		 * href="http://stackoverflow.com/a/34127009/2398263">edparris</a>) */
-		private volatile byte[]		albumArtwork;
+		private volatile byte[] albumArtwork;
 		/** The image's width in pixel size */
-		public final int			width;
+		public final int width;
 		/** The image's height in pixel size */
-		public final int			height;
+		public final int height;
 		/** The image's MIME type */
-		public final String			mimeType;
+		public final String mimeType;
 		
 		/** @param artwork The artwork data to read from */
 		public MediaArtwork(Artwork artwork) {
@@ -289,8 +318,10 @@ public class MediaReader {
 				height = height <= 0 ? bi.getHeight() : height;
 				ImageIO.write(bi, "png", baos);
 			} catch(Throwable e) {
-				System.err.print("Unable to read artwork data: ");
-				e.printStackTrace();
+				if(HTTPClientRequest.debug) {
+					LogUtils.ORIGINAL_SYSTEM_ERR.print("Unable to read artwork data: ");
+					e.printStackTrace(LogUtils.ORIGINAL_SYSTEM_ERR);
+				}
 			}
 			final byte[] data = baos.toByteArray();
 			baos.dispose();

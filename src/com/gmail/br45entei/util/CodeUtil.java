@@ -35,13 +35,15 @@ public class CodeUtil {
 		UNKNOWN;
 	}
 	
-	/** @return The type of operating system that java is currently running on */
+	/** @return The type of operating system that java is currently running
+	 *         on */
 	public static EnumOS getOSType() {
 		String s = System.getProperty("os.name").toLowerCase();
 		return s.contains("win") ? EnumOS.WINDOWS : (s.contains("mac") ? EnumOS.OSX : (s.contains("solaris") ? EnumOS.SOLARIS : (s.contains("sunos") ? EnumOS.SOLARIS : (s.contains("linux") ? EnumOS.LINUX : (s.contains("unix") ? EnumOS.LINUX : EnumOS.UNKNOWN)))));
 	}
 	
-	/** @param millis The amount of time in milliseconds to attempt to sleep for */
+	/** @param millis The amount of time in milliseconds to attempt to sleep
+	 *            for */
 	public static final void sleep(long millis) {
 		try {
 			Thread.sleep(millis);
@@ -52,7 +54,7 @@ public class CodeUtil {
 	public static final <K, V> Entry<K, V> createBlankEntry(final K key, final V value) {
 		return new Entry<K, V>() {
 			
-			V	val	= value;
+			V val = value;
 			
 			@Override
 			public K getKey() {

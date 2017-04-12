@@ -1,6 +1,3 @@
-/**
- * 
- */
 package com.gmail.br45entei.server;
 
 /** @author Brian_Entei */
@@ -23,6 +20,7 @@ public enum HTTPStatusCodes {
 	HTTP_300("Multiple Choices"),
 	HTTP_301("Moved Permanently"),
 	HTTP_302("Found"),
+	HTTP_302_1("Moved Temporarily"),
 	HTTP_303("See Other"),
 	HTTP_304("Not Modified"),
 	HTTP_305("Use Proxy"),
@@ -31,6 +29,7 @@ public enum HTTPStatusCodes {
 	HTTP_308("Permanent Redirect"),
 	HTTP_400("Bad Request"),
 	HTTP_401("Authorization Required"),
+	HTTP_401_1("Unauthorized"),
 	HTTP_402("Payment Required"),
 	HTTP_403("Forbidden"),
 	HTTP_404("Not Found"),
@@ -63,6 +62,7 @@ public enum HTTPStatusCodes {
 	HTTP_449("Retry With"),
 	HTTP_450("Blocked by Windows Parental Controls"),
 	HTTP_451("Unavailable For Legal Reasons"),
+	HTTP_473("Not A Proxy"),
 	HTTP_494("Request Header Too Large"),
 	HTTP_495("Cert Error"),
 	HTTP_496("No Cert"),
@@ -91,9 +91,11 @@ public enum HTTPStatusCodes {
 	HTTP_420_1("Enhance Your Calm"),
 	HTTP_666("Site is evil!"),
 	HTTP_1337("700 1337 f0R j00, K1dD0"),
-	HTTP_TYPO3("Site uses TYPO3, switch to WordPress to continue");
+	HTTP_TYPO3("Site uses TYPO3, switch to WordPress to continue"),
 	
-	private final String	value;
+	HTTP_NOT_SET("-1 Not a status code");
+	
+	private final String value;
 	
 	private HTTPStatusCodes(String value) {
 		this.value = value;
@@ -110,6 +112,19 @@ public enum HTTPStatusCodes {
 	@Override
 	public final String toString() {
 		return this.getName() + " " + this.value;
+	}
+	
+	/** @param httpStatusCode The HTTPStatusCodes code, represented as a string
+	 * @return The resulting HTTPStatusCodes code, if found */
+	public static HTTPStatusCodes fromString(String httpStatusCode) {
+		if(httpStatusCode != null) {
+			for(HTTPStatusCodes code : HTTPStatusCodes.values()) {
+				if(code.toString().equalsIgnoreCase(httpStatusCode) || code.toString().equalsIgnoreCase(httpStatusCode.trim())) {
+					return code;
+				}
+			}
+		}
+		return null;
 	}
 	
 	/*static {

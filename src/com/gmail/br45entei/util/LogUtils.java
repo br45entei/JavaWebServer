@@ -24,27 +24,33 @@ import java.util.UUID;
 public class LogUtils {
 	/** Whether or not the debug(...) methods will print to the standard output
 	 * stream */
-	public static boolean			allowDebugOutput	= false;
+	public static boolean allowDebugOutput = false;
 	
-	protected static String			consolePrefix		= ">";
-	protected static boolean		consoleMode			= false;
+	protected static String consolePrefix = ">";
+	protected static boolean consoleMode = false;
+	
+	protected static final boolean isConsolePresent = System.console() != null;//sun.misc.SharedSecrets.getJavaIOAccess().console() != null;
+	
+	public static final boolean isConsolePresent() {
+		return isConsolePresent;
+	}
 	
 	/** The original {@link System#in} InputStream */
-	public static final InputStream	ORIGINAL_SYSTEM_IN	= System.in;
+	public static final InputStream ORIGINAL_SYSTEM_IN = System.in;
 	/** The original {@link System#out} PrintStream */
-	public static final PrintStream	ORIGINAL_SYSTEM_OUT	= System.out;
+	public static final PrintStream ORIGINAL_SYSTEM_OUT = System.out;
 	/** The original {@link System#err} PrintStream */
-	public static final PrintStream	ORIGINAL_SYSTEM_ERR	= System.err;
+	public static final PrintStream ORIGINAL_SYSTEM_ERR = System.err;
 	
-	private static PrintStream		out					= LogUtils.ORIGINAL_SYSTEM_OUT;
-	private static PrintStream		err					= LogUtils.ORIGINAL_SYSTEM_ERR;
-	protected static PrintStream	secondaryOut		= null;
-	protected static PrintStream	secondaryErr		= null;
-	protected static PrintStream	tertiaryOut			= null;
-	protected static PrintStream	tertiaryErr			= null;
+	private static PrintStream out = LogUtils.ORIGINAL_SYSTEM_OUT;
+	private static PrintStream err = LogUtils.ORIGINAL_SYSTEM_ERR;
+	protected static PrintStream secondaryOut = null;
+	protected static PrintStream secondaryErr = null;
+	protected static PrintStream tertiaryOut = null;
+	protected static PrintStream tertiaryErr = null;
 	
-	private static boolean			replacedSystemOut	= false;
-	private static boolean			replacedSystemErr	= false;
+	private static boolean replacedSystemOut = false;
+	private static boolean replacedSystemErr = false;
 	
 	/** @return The out stream that this class uses */
 	public static final PrintStream getOut() {
@@ -180,88 +186,301 @@ public class LogUtils {
 		return false;
 	}
 	
-	private static void print(Object str) {
-		LogUtils.out.print(str);
+	public static void print(Object obj) {
+		if(obj instanceof Throwable) {
+			obj = StringUtil.throwableToStr((Throwable) obj, "\n");
+		}
+		if(LogUtils.out instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.out).print(String.valueOf(obj));
+		} else {
+			LogUtils.out.print(String.valueOf(obj));
+		}
 		if(LogUtils.secondaryOut != null) {
-			LogUtils.secondaryOut.print(str);
+			if(LogUtils.secondaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryOut).print(String.valueOf(obj));
+			} else {
+				LogUtils.secondaryOut.print(String.valueOf(obj));
+			}
 		}
 		if(LogUtils.tertiaryOut != null) {
-			LogUtils.tertiaryOut.print(str);
+			if(LogUtils.tertiaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryOut).print(String.valueOf(obj));
+			} else {
+				LogUtils.tertiaryOut.print(String.valueOf(obj));
+			}
 		}
 	}
 	
 	/** @param obj The object to print */
 	public static void println(Object obj) {
-		LogUtils.out.println(obj);
+		if(obj instanceof Throwable) {
+			obj = StringUtil.throwableToStr((Throwable) obj, "\n");
+		}
+		if(LogUtils.out instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.out).println(String.valueOf(obj));
+		} else {
+			LogUtils.out.println(String.valueOf(obj));
+		}
 		if(LogUtils.secondaryOut != null) {
-			LogUtils.secondaryOut.println(obj);
+			if(LogUtils.secondaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryOut).println(String.valueOf(obj));
+			} else {
+				LogUtils.secondaryOut.println(String.valueOf(obj));
+			}
 		}
 		if(LogUtils.tertiaryOut != null) {
-			LogUtils.tertiaryOut.println(obj);
+			if(LogUtils.tertiaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryOut).println(String.valueOf(obj));
+			} else {
+				LogUtils.tertiaryOut.println(String.valueOf(obj));
+			}
 		}
 	}
 	
-	private static void println(String str, LogType logType) {
+	public static void println(String str, LogType logType) {
 		if(LogUtils.out instanceof PrintStreamRedirector) {
 			((PrintStreamRedirector) LogUtils.out).println(str, logType);
 		} else {
 			LogUtils.out.println(str);
-			if(LogUtils.secondaryOut != null) {
-				if(LogUtils.secondaryOut instanceof PrintStreamRedirector) {
-					((PrintStreamRedirector) LogUtils.secondaryOut).println(str, logType);
-				} else {
-					LogUtils.secondaryOut.println(str);
-				}
+		}
+		if(LogUtils.secondaryOut != null) {
+			if(LogUtils.secondaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryOut).println(str, logType);
+			} else {
+				LogUtils.secondaryOut.println(str);
 			}
-			if(LogUtils.tertiaryOut != null) {
+		}
+		if(LogUtils.tertiaryOut != null) {
+			if(LogUtils.tertiaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryOut).println(str, logType);
+			} else {
 				LogUtils.tertiaryOut.println(str);
 			}
 		}
 	}
 	
-	@SuppressWarnings("unused")
-	private static void printErr(Object obj) {
-		LogUtils.err.print(obj);
+	public static void printErr(Object obj) {
+		if(obj instanceof Throwable) {
+			obj = StringUtil.throwableToStr((Throwable) obj, "\n");
+		}
+		if(LogUtils.err instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.err).print(String.valueOf(obj));
+		} else {
+			LogUtils.err.print(String.valueOf(obj));
+		}
 		if(LogUtils.secondaryErr != null) {
-			LogUtils.secondaryErr.print(obj);
+			if(LogUtils.secondaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryErr).print(String.valueOf(obj));
+			} else {
+				LogUtils.secondaryErr.print(String.valueOf(obj));
+			}
 		}
 		if(LogUtils.tertiaryErr != null) {
-			LogUtils.tertiaryErr.println(obj);
+			if(LogUtils.tertiaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryErr).print(String.valueOf(obj));
+			} else {
+				LogUtils.tertiaryErr.print(String.valueOf(obj));
+			}
 		}
 	}
 	
 	/** @param obj The object to print */
 	public static void printErrln(Object obj) {
-		LogUtils.err.println(obj);
+		if(LogUtils.err instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.err).println(String.valueOf(obj));
+		} else {
+			LogUtils.err.println(String.valueOf(obj));
+		}
 		if(LogUtils.secondaryErr != null) {
-			LogUtils.secondaryErr.println(obj);
+			if(LogUtils.secondaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryErr).println(String.valueOf(obj));
+			} else {
+				LogUtils.secondaryErr.println(String.valueOf(obj));
+			}
 		}
 		if(LogUtils.tertiaryErr != null) {
-			LogUtils.tertiaryErr.println(obj);
+			if(LogUtils.tertiaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryErr).println(String.valueOf(obj));
+			} else {
+				LogUtils.tertiaryErr.println(String.valueOf(obj));
+			}
 		}
 	}
 	
-	private static void printErrln(String str, LogType logType) {
+	public static void printErrln(String str, LogType logType) {
 		if(LogUtils.err instanceof PrintStreamRedirector) {
 			((PrintStreamRedirector) LogUtils.err).println(str, logType);
 		} else {
 			LogUtils.err.println(str);
-			if(LogUtils.secondaryErr != null) {
-				if(LogUtils.secondaryErr instanceof PrintStreamRedirector) {
-					((PrintStreamRedirector) LogUtils.secondaryErr).println(str, logType);
-				} else {
-					LogUtils.secondaryErr.println(str);
-				}
+		}
+		if(LogUtils.secondaryErr != null) {
+			if(LogUtils.secondaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryErr).println(str, logType);
+			} else {
+				LogUtils.secondaryErr.println(str);
 			}
-			if(LogUtils.tertiaryErr != null) {
+		}
+		if(LogUtils.tertiaryErr != null) {
+			if(LogUtils.tertiaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryErr).println(str, logType);
+			} else {
 				LogUtils.tertiaryErr.println(str);
 			}
 		}
 	}
 	
+	public static void print(Object obj, Thread t) {
+		if(obj instanceof Throwable) {
+			obj = StringUtil.throwableToStr((Throwable) obj, "\n");
+		}
+		if(LogUtils.out instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.out).print(String.valueOf(obj), t);
+		} else {
+			LogUtils.out.print(obj);
+		}
+		if(LogUtils.secondaryOut != null) {
+			if(LogUtils.secondaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryOut).print(String.valueOf(obj), t);
+			} else {
+				LogUtils.secondaryOut.print(String.valueOf(obj));
+			}
+		}
+		if(LogUtils.tertiaryOut != null) {
+			if(LogUtils.tertiaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryOut).print(String.valueOf(obj), t);
+			} else {
+				LogUtils.tertiaryOut.print(String.valueOf(obj));
+			}
+		}
+	}
+	
+	/** @param obj The object to print */
+	public static void println(Object obj, Thread t) {
+		if(obj instanceof Throwable) {
+			obj = StringUtil.throwableToStr((Throwable) obj, "\n");
+		}
+		if(LogUtils.out instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.out).println(String.valueOf(obj), t);
+		} else {
+			LogUtils.out.println(obj);
+		}
+		if(LogUtils.secondaryOut != null) {
+			if(LogUtils.secondaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryOut).println(String.valueOf(obj), t);
+			} else {
+				LogUtils.secondaryOut.println(String.valueOf(obj));
+			}
+		}
+		if(LogUtils.tertiaryOut != null) {
+			if(LogUtils.tertiaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryOut).println(String.valueOf(obj), t);
+			} else {
+				LogUtils.tertiaryOut.println(String.valueOf(obj));
+			}
+		}
+	}
+	
+	public static void println(String str, LogType logType, Thread t) {
+		if(LogUtils.out instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.out).println(str, logType, t);
+		} else {
+			LogUtils.out.println(str);
+		}
+		if(LogUtils.secondaryOut != null) {
+			if(LogUtils.secondaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryOut).println(str, logType, t);
+			} else {
+				LogUtils.secondaryOut.println(str);
+			}
+		}
+		if(LogUtils.tertiaryOut != null) {
+			if(LogUtils.tertiaryOut instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryOut).println(str, logType, t);
+			} else {
+				LogUtils.tertiaryOut.println(str);
+			}
+		}
+	}
+	
+	public static void printErr(Object obj, Thread t) {
+		if(obj instanceof Throwable) {
+			obj = StringUtil.throwableToStr((Throwable) obj, "\n");
+		}
+		if(LogUtils.err instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.err).print(String.valueOf(obj), t);
+		} else {
+			LogUtils.err.print(obj);
+		}
+		if(LogUtils.secondaryErr != null) {
+			if(LogUtils.secondaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryErr).print(String.valueOf(obj), t);
+			} else {
+				LogUtils.secondaryErr.print(obj);
+			}
+		}
+		if(LogUtils.tertiaryErr != null) {
+			if(LogUtils.tertiaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryErr).print(String.valueOf(obj), t);
+			} else {
+				LogUtils.tertiaryErr.print(obj);
+			}
+		}
+	}
+	
+	/** @param obj The object to print */
+	public static void printErrln(Object obj, Thread t) {
+		if(LogUtils.err instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.err).println(String.valueOf(obj), t);
+		} else {
+			LogUtils.err.println(obj);
+		}
+		if(LogUtils.secondaryErr != null) {
+			if(LogUtils.secondaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryErr).println(String.valueOf(obj), t);
+			} else {
+				LogUtils.secondaryErr.println(obj);
+			}
+		}
+		if(LogUtils.tertiaryErr != null) {
+			if(LogUtils.tertiaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryErr).println(String.valueOf(obj), t);
+			} else {
+				LogUtils.tertiaryErr.println(obj);
+			}
+		}
+	}
+	
+	public static void printErrln(String str, LogType logType, Thread t) {
+		if(LogUtils.err instanceof PrintStreamRedirector) {
+			((PrintStreamRedirector) LogUtils.err).println(str, logType, t);
+		} else {
+			LogUtils.err.println(str);
+		}
+		if(LogUtils.secondaryErr != null) {
+			if(LogUtils.secondaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.secondaryErr).println(str, logType, t);
+			} else {
+				LogUtils.secondaryErr.println(str);
+			}
+		}
+		if(LogUtils.tertiaryErr != null) {
+			if(LogUtils.tertiaryErr instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.tertiaryErr).println(str, logType, t);
+			} else {
+				LogUtils.tertiaryErr.println(str);
+			}
+		}
+	}
+	
+	private static volatile String carriageReturn = "\r";
+	
+	public static final void setConsoleModeCarriageReturn(String carriageReturn) {
+		LogUtils.carriageReturn = carriageReturn == null ? LogUtils.carriageReturn : carriageReturn;
+	}
+	
 	public static final String carriageReturn() {
-		if(LogUtils.consoleMode) {
-			return "\r";
+		if(LogUtils.isConsolePresent && LogUtils.consoleMode) {
+			return LogUtils.carriageReturn;
 		}
 		return "";
 	}
@@ -280,6 +499,16 @@ public class LogUtils {
 	
 	/** Prints the console prefix if this class is in console mode */
 	public static void printConsole() {
+		if(isConsolePresent && LogUtils.consoleMode) {
+			if(LogUtils.out instanceof PrintStreamRedirector) {
+				((PrintStreamRedirector) LogUtils.out).printConsole();
+			} else {
+				LogUtils.print(LogUtils.carriageReturn() + LogUtils.consolePrefix);
+			}
+		}
+	}
+	
+	public static void printConsoleNoChecks() {
 		if(LogUtils.consoleMode) {
 			if(LogUtils.out instanceof PrintStreamRedirector) {
 				((PrintStreamRedirector) LogUtils.out).printConsole();
@@ -289,10 +518,11 @@ public class LogUtils {
 		}
 	}
 	
-	/** @return The actual character used when the {@link #printConsole()} method
+	/** @return The actual character used when the {@link #printConsole()}
+	 *         method
 	 *         is called.<br>
 	 *         (Usually the ">" character) */
-	public static final String getCarriageReturnConsolePrefix() {
+	public static final String getConsolePrefixChar() {
 		return consolePrefix;
 	}
 	
@@ -304,7 +534,7 @@ public class LogUtils {
 	
 	/** @return Whether or not this class is in console mode */
 	public static boolean isConsoleMode() {
-		return LogUtils.consoleMode;
+		return isConsolePresent && LogUtils.consoleMode;
 	}
 	
 	/** @param consolePrefix The console prefix to print after log messages if
@@ -313,7 +543,8 @@ public class LogUtils {
 		LogUtils.consolePrefix = consolePrefix;
 	}
 	
-	/** @param getTimeOnly Whether or not time should be included but not date as
+	/** @param getTimeOnly Whether or not time should be included but not date
+	 *            as
 	 *            well
 	 * @param fileSystemSafe Whether or not the returned string will be used in
 	 *            the making of a folder or file
@@ -352,6 +583,12 @@ public class LogUtils {
 		return LogUtils.carriageReturn() + getLoggerTimePrefix() + " " + getLoggerThreadPrefix(logType) + " ";
 	}
 	
+	/** @param logType The LogType to get
+	 * @return The log prefix */
+	public static final String getLoggerPrefix(LogType logType, Thread t) {
+		return LogUtils.carriageReturn() + getLoggerTimePrefix() + " " + getLoggerThreadPrefix(t, logType) + " ";
+	}
+	
 	/** @return The time prefix with the current time */
 	public static final String getLoggerTimePrefix() {
 		return "[" + LogUtils.getSystemTime(/*true*/false, false, true) + "]";
@@ -359,12 +596,22 @@ public class LogUtils {
 	
 	/** @param logType The type of log to use
 	 * @return The thread prefix in the following format:<br>
-	 * <br>
+	 *         <br>
 	 *         <b>
 	 *         {@code "[" + Thread.currentThread().getName() + "/" + logType + "]"}
 	 *         </b> */
 	public static final String getLoggerThreadPrefix(LogType logType) {
 		return "[" + Thread.currentThread().getName() + "/" + logType + "]";
+	}
+	
+	/** @param logType The type of log to use
+	 * @return The thread prefix in the following format:<br>
+	 *         <br>
+	 *         <b>
+	 *         {@code "[" + Thread.currentThread().getName() + "/" + logType + "]"}
+	 *         </b> */
+	public static final String getLoggerThreadPrefix(Thread t, LogType logType) {
+		return "[" + t.getName() + "/" + logType + "]";
 	}
 	
 	/** @param logType The LogType to get
@@ -425,8 +672,8 @@ public class LogUtils {
 		LogUtils.warn(msg, null);
 	}
 	
-	private static final ArrayList<String>	warnOnceMsgs	= new ArrayList<>();
-	private static final ArrayList<String>	errorOnceMsgs	= new ArrayList<>();
+	private static final ArrayList<String> warnOnceMsgs = new ArrayList<>();
+	private static final ArrayList<String> errorOnceMsgs = new ArrayList<>();
 	
 	/** @param msg The message to print */
 	public static void warnOnce(String msg) {
@@ -505,7 +752,8 @@ public class LogUtils {
 		LogUtils.fatal(msg, null);
 	}
 	
-	/** Prints the given message and throwable to the standard error console,<br>
+	/** Prints the given message and throwable to the standard error
+	 * console,<br>
 	 * then invokes {@code System.exit(-1);} Use with caution.
 	 * 
 	 * @param message The message to print
@@ -532,7 +780,8 @@ public class LogUtils {
 		LogUtils.fatal("", t, exitCode);
 	}
 	
-	/** Prints the given message and throwable to the standard error console,<br>
+	/** Prints the given message and throwable to the standard error
+	 * console,<br>
 	 * then invokes {@code System.exit(exitCode);} Use with caution.
 	 * 
 	 * @param message The message to print
@@ -567,7 +816,7 @@ public class LogUtils {
 	 * 
 	 * @author Brian_Entei */
 	public static final class PrintStreamRedirector extends PrintStream {
-		private final LogType	logType;
+		private final LogType logType;
 		
 		/** @param out The output stream to redirect
 		 * @param logType The log type */
@@ -724,13 +973,15 @@ public class LogUtils {
 		 * 
 		 * @param s The array of chars to be printed
 		 * 
-		 * @throws NullPointerException If <code>s</code> is <code>null</code> */
+		 * @throws NullPointerException If <code>s</code> is
+		 *             <code>null</code> */
 		@Override
 		public void print(char s[]) {
 			print(new String(s));
 		}
 		
-		/** Prints a string. If the argument is <code>null</code> then the string
+		/** Prints a string. If the argument is <code>null</code> then the
+		 * string
 		 * <code>"null"</code> is printed. Otherwise, the string's characters
 		 * are
 		 * converted into bytes according to the platform's default character
@@ -742,10 +993,37 @@ public class LogUtils {
 		public void print(String s) {
 			if(s.contains("\n")) {
 				for(String str : s.split("\n")) {
+					if(str.trim().isEmpty()) {
+						continue;
+					}
 					println(str);
 				}
 			} else {
+				//s = doesStrStartWithLoggerPrefix(s) ? s : LogUtils.getLoggerPrefix(this.logType) + s;
 				super.print(s);
+			}
+		}
+		
+		/** Prints a string. If the argument is <code>null</code> then the
+		 * string
+		 * <code>"null"</code> is printed. Otherwise, the string's characters
+		 * are
+		 * converted into bytes according to the platform's default character
+		 * encoding, and these bytes are written in exactly the manner of the
+		 * <code>{@link #write(int)}</code> method.
+		 * 
+		 * @param s The <code>String</code> to be printed */
+		public final void print(String s, Thread t) {
+			if(s.contains("\n")) {
+				for(String str : s.split("\n")) {
+					if(str.trim().isEmpty()) {
+						continue;
+					}
+					println(str, t);
+				}
+			} else {
+				s = doesStrStartWithLoggerPrefix(s) ? s : LogUtils.getLoggerPrefix(this.logType, t) + s;
+				print(s);
 			}
 		}
 		
@@ -772,18 +1050,19 @@ public class LogUtils {
 		
 		/* Methods that do terminate lines */
 		
-		/** Terminates the current line by writing the line separator string. The
+		/** Terminates the current line by writing the line separator string.
+		 * The
 		 * line separator string is defined by the system property
 		 * <code>line.separator</code>, and is not necessarily a single newline
 		 * character (<code>'\n'</code>). */
 		@Override
 		public void println() {
-			super.println();
+			super.print("\n");
 			if(LogUtils.secondaryOut != null) {
-				LogUtils.secondaryOut.println();
+				LogUtils.secondaryOut.print("\n");
 			}
 			if(LogUtils.tertiaryOut != null) {
-				LogUtils.tertiaryOut.println();
+				LogUtils.tertiaryOut.print("\n");
 			}
 			LogUtils.printConsole();
 		}
@@ -809,7 +1088,8 @@ public class LogUtils {
 			println(x + "");
 		}
 		
-		/** Prints an integer and then terminate the line. This method behaves as
+		/** Prints an integer and then terminate the line. This method behaves
+		 * as
 		 * though it invokes <code>{@link #print(int)}</code> and then
 		 * <code>{@link #println()}</code>.
 		 * 
@@ -882,10 +1162,37 @@ public class LogUtils {
 		 * though it invokes <code>{@link #print(String)}</code> and then
 		 * <code>{@link #println()}</code>.
 		 * 
+		 * @param x The <code>String</code> to be printed. */
+		public void println(String x, Thread t) {
+			x = doesStrStartWithLoggerPrefix(x) ? x : LogUtils.getLoggerPrefix(this.logType, t) + x;
+			if(x.contains("\n")) {
+				for(String str : x.split("\n")) {
+					println(str, t);
+				}
+			} else {
+				super.print(x);
+				println();
+			}
+		}
+		
+		/** Prints a String and then terminate the line. This method behaves as
+		 * though it invokes <code>{@link #print(String)}</code> and then
+		 * <code>{@link #println()}</code>.
+		 * 
 		 * @param x The <code>Object</code> to be printed.
 		 * @param logType The log type to use */
 		public void println(String x, LogType logType) {
 			println(LogUtils.getLoggerPrefix(logType) + x);
+		}
+		
+		/** Prints a String and then terminate the line. This method behaves as
+		 * though it invokes <code>{@link #print(String)}</code> and then
+		 * <code>{@link #println()}</code>.
+		 * 
+		 * @param x The <code>Object</code> to be printed.
+		 * @param logType The log type to use */
+		public void println(String x, LogType logType, Thread t) {
+			println(LogUtils.getLoggerPrefix(logType, t) + x);
 		}
 		
 		/** Prints an Object and then terminate the line. This method calls
@@ -1265,7 +1572,7 @@ public class LogUtils {
 	public static final class BufferedReaderRedirector extends BufferedReader {
 		/** The string that is returned when this class' readLine() method times
 		 * out after 10 seconds */
-		public static final String	READLINE_NO_RESPONSE	= UUID.randomUUID().toString();
+		public static final String READLINE_NO_RESPONSE = UUID.randomUUID().toString();
 		
 		/** @param in The reader to redirect */
 		public BufferedReaderRedirector(Reader in) {
@@ -1409,7 +1716,8 @@ public class LogUtils {
 			return super.markSupported();
 		}
 		
-		/** Marks the present position in the stream. Subsequent calls to reset()
+		/** Marks the present position in the stream. Subsequent calls to
+		 * reset()
 		 * will attempt to reposition the stream to this point.
 		 * 
 		 * @param readAheadLimit Limit on the number of characters that may be

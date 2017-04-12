@@ -10,7 +10,6 @@ import org.eclipse.swt.events.SelectionEvent;
 import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Dialog;
-import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.wb.swt.SWTResourceManager;
@@ -18,9 +17,9 @@ import org.eclipse.wb.swt.SWTResourceManager;
 /** @author Brian_Entei */
 public class AboutDialog extends Dialog {
 	
-	protected Response		result	= Response.NO_RESPONSE;
-	protected Shell			shell;
-	protected final Shell	parentShell;
+	protected Response result = Response.NO_RESPONSE;
+	protected Shell shell;
+	protected final Shell parentShell;
 	
 	/** Create the dialog.
 	 * 
@@ -39,11 +38,12 @@ public class AboutDialog extends Dialog {
 		createContents();
 		this.shell.open();
 		this.shell.layout();
-		Display display = getParent().getDisplay();
+		//Display display = getParent().getDisplay();
 		while(!this.shell.isDisposed()) {
-			if(!display.readAndDispatch()) {
-				display.sleep();
-			}
+			//if(!display.readAndDispatch()) {
+			//	display.sleep();
+			//}
+			Main.getInstance().runLoop();
 			if(this.result != Response.NO_RESPONSE) {
 				this.shell.close();
 				break;
@@ -54,7 +54,7 @@ public class AboutDialog extends Dialog {
 	
 	/** Create contents of the dialog. */
 	private void createContents() {
-		this.shell = new Shell(getParent(), SWT.CLOSE | SWT.TITLE | SWT.APPLICATION_MODAL);
+		this.shell = new Shell(getParent(), SWT.CLOSE | SWT.TITLE);
 		this.shell.setImages(new Image[] {SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-16x16.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-32x32.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-64x64.png"), SWTResourceManager.getImage(Main.class, "/assets/textures/title/Entei-128x128.png")});
 		this.shell.setSize(315, 165);
 		this.shell.setText("About \"" + JavaWebServer.APPLICATION_NAME + "\"");

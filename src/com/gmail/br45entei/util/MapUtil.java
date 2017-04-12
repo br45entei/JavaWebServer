@@ -1,10 +1,12 @@
 package com.gmail.br45entei.util;
 
-import com.gmail.br45entei.server.ClientInfo;
+import com.gmail.br45entei.server.ClientConnection;
+import com.gmail.br45entei.server.HTTPClientRequest;
 import com.gmail.br45entei.server.data.DomainDirectory;
 import com.gmail.br45entei.server.data.FileInfo;
 
 import java.io.File;
+import java.nio.file.InvalidPathException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map.Entry;
@@ -19,17 +21,35 @@ public class MapUtil {
 		return list.get(StringUtils.getRandomIntBetween(0, list.size()));
 	}
 	
-	public static final String getRandomLinkFor(final HashMap<Integer, String> files, final String path, final String pathPrefix, final DomainDirectory domainDirectory, final String httpProtocol, final ClientInfo clientInfo) {
+	public static final String getRandomLinkFor(final HashMap<Integer, String> files, final String path, final String pathPrefix, final DomainDirectory domainDirectory, final String httpProtocol, final ClientConnection reuse) throws InvalidPathException, Throwable {
 		if(files.size() == 0) {
 			return null;
 		}
 		String randomFilePath = getRandomFileFromHashMap(files);
-		String newPath = path + "/" + randomFilePath;
+		String newPath = path + "/" + randomFilePath.replace(File.separator, "/");
 		if(newPath.startsWith("//")) {
 			newPath = newPath.substring(1);
 		}
-		File file = new File(FilenameUtils.normalize(pathPrefix + newPath));
+		String filePath = (pathPrefix + File.separator + randomFilePath).replace("\\", File.separator).replace("/", File.separator);
+		File file = new File(FilenameUtils.normalize(filePath));
+		if(HTTPClientRequest.debug) {
+			reuse.printErrln("filePath: " + filePath);
+			reuse.printErrln("path: " + path + "\r\n");
+			reuse.printErrln("pathPrefix: " + pathPrefix);
+			reuse.printErrln("File.separator: " + File.separator);
+			reuse.printErrln("randomFilePath: " + randomFilePath);
+			reuse.printErrln("file absolute path: " + file.getAbsolutePath());
+			reuse.printLogsNow(true);
+		}
 		ArrayList<File> failedFiles = new ArrayList<>();
+		if(HTTPClientRequest.debug) {
+			try {
+				FileUtil.isFileAccessible(file);
+			} catch(InvalidPathException e) {
+				e.printStackTrace();
+				return "Failed_Check_Error_Log.err";//throw new Throwable(e);
+			}
+		}
 		while(!FileUtil.isFileAccessible(file)) {//Check if the file can be displayed on the web page
 			if(!failedFiles.contains(file)) {
 				failedFiles.add(file);
@@ -38,16 +58,13 @@ public class MapUtil {
 				return null;
 			}
 			randomFilePath = getRandomFileFromHashMap(files);
-			newPath = path + "/" + randomFilePath;
-			if(newPath.startsWith("//")) {
-				newPath = newPath.substring(1);
-			}
-			file = new File(FilenameUtils.normalize(pathPrefix + newPath));
+			filePath = (pathPrefix + File.separator + randomFilePath).replace("\\", File.separator).replace("/", File.separator);
+			file = new File(FilenameUtils.normalize(filePath));
 		}
 		
 		if(file.exists()) {
 			String unAliasedPath = (newPath.startsWith("/") ? "" : "/") + newPath;
-			return StringUtils.encodeHTML(httpProtocol + clientInfo.clientRequest.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
+			return StringUtils.encodeHTML(httpProtocol + reuse.request.host + StringUtils.makeFilePathURLSafe(domainDirectory.replacePathWithAlias(unAliasedPath)));
 		}
 		return null;
 	}
@@ -78,8 +95,8 @@ public class MapUtil {
 			long smallestSize = Long.MAX_VALUE;
 			for(Entry<Integer, FileInfo> entry : infos.entrySet()) {
 				FileInfo info = entry.getValue();
-				if(info != null && StringUtils.isStrLong(info.contentLength)) {
-					long size = Long.valueOf(info.contentLength).longValue();
+				if(info != null) {
+					long size = info.contentLength;
 					if(size < smallestSize) {
 						smallestInfoKey = entry.getKey();
 						smallestSize = size;

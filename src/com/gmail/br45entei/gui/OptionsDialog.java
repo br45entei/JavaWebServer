@@ -1,9 +1,12 @@
 package com.gmail.br45entei.gui;
 
 import com.gmail.br45entei.JavaWebServer;
+import com.gmail.br45entei.data.Property;
+import com.gmail.br45entei.server.data.NaughtyClientData;
 import com.gmail.br45entei.server.data.php.PhpResult;
 import com.gmail.br45entei.swt.Functions;
 import com.gmail.br45entei.swt.Response;
+import com.gmail.br45entei.util.CodeUtil;
 
 import java.io.File;
 
@@ -36,30 +39,35 @@ import org.eclipse.wb.swt.SWTResourceManager;
 /** @author Brian_Entei */
 public class OptionsDialog extends Dialog {
 	
-	protected Response	response	= Response.NO_RESPONSE;
-	protected Shell		shell;
-	protected Text		homeDirectory;
-	private Button		btnRestoreDefaults;
-	protected Button	btnCalculateDir;
-	protected Text		directoryPageFontFace;
-	protected Text		phpCGI_File;
-	protected Spinner	requestTimeout;
-	protected Spinner	threadPoolSize;
-	protected Spinner	serverListenPort;
-	protected Text		sslStorePath;
-	protected Spinner	sslListenPort;
-	protected Button	enableSSLhttps;
-	protected Text		sslStorePassword;
-	protected Spinner	adminListenPort;
-	protected Button	enableAdministrationInterface;
-	protected Text		adminUsername;
-	protected Text		adminPassword;
-	protected Text		proxyUsername;
-	protected Text		proxyPassword;
-	protected Button	btnEnabled;
-	protected Composite	proxySettings;
-	protected Composite	adminSettings;
-	protected Composite	sslSettings;
+	protected Response response = Response.NO_RESPONSE;
+	protected Shell shell;
+	protected Text homeDirectory;
+	protected Button btnRestoreDefaults;
+	protected Button btnCalculateDir;
+	protected Text directoryPageFontFace;
+	protected Text phpCGI_File;
+	protected Spinner requestTimeout;
+	protected Spinner threadPoolSize;
+	protected Spinner vlcNetworkCaching;
+	protected Spinner serverListenPort;
+	protected Text sslStorePath;
+	protected Spinner sslListenPort;
+	protected Button enableSSLhttps;
+	protected Text sslStorePassword;
+	protected Spinner adminListenPort;
+	protected Button enableAdministrationInterface;
+	protected Text adminUsername;
+	protected Text adminPassword;
+	protected Text proxyUsername;
+	protected Text proxyPassword;
+	protected Button btnEnableOverrideThreadPool;
+	protected Composite proxySettings;
+	protected Composite adminSettings;
+	protected Composite sslSettings;
+	protected Button btnTerminateDeadProxy;
+	protected Button btnTerminateDeadProxyConnectionTimeouts;
+	
+	protected volatile HTTPClientUserAgentOptionsDialog httpClientOptionsDialog = null;
 	
 	/** @param args System command arguments */
 	public static final void main(String[] args) {
@@ -79,6 +87,60 @@ public class OptionsDialog extends Dialog {
 		setText("SWT Dialog");
 	}
 	
+	public final Shell getShell() {
+		return this.shell;
+	}
+	
+	public final void dispose() {
+		this.shell.dispose();
+	}
+	
+	public final boolean isDisposed() {
+		return this.shell.isDisposed();
+	}
+	
+	/** Runs {@link Display#readAndDispatch()},
+	 * then attempts to sleep. */
+	protected final void runClock() {
+		if(this.shell.isDisposed()) {
+			return;
+		}
+		//this.exitCheck();
+		if(this.shell.isVisible()) {
+			if(!this.shell.getDisplay().readAndDispatch()) {
+				CodeUtil.sleep(1L);//display.sleep();
+			}
+			return;
+		}
+		CodeUtil.sleep(10L);
+	}
+	
+	protected final boolean mainLoop(Display display) {
+		if(!display.readAndDispatch()) {
+			display.sleep();
+		}
+		if(this.response != Response.NO_RESPONSE) {
+			this.shell.dispose();
+			return false;
+		}
+		if(this.shell.isDisposed()) {
+			return false;
+		}
+		if(Main.getInstance() != null) {
+			if(Main.getInstance().showWindow) {
+				Main.getInstance().runLoop();
+			} else if(Main.getInstance().isSWTConsoleWindowOpen()) {
+				Main.getInstance().getConsoleWindow().runLoop();
+			} else {
+				this.runClock();
+			}
+		}
+		if(this.shell.isDisposed()) {
+			return false;
+		}
+		return true;
+	}
+	
 	/** Open the dialog.
 	 * 
 	 * @return the result */
@@ -88,24 +150,7 @@ public class OptionsDialog extends Dialog {
 		this.shell.layout();
 		Display display = getParent().getDisplay();
 		while(!this.shell.isDisposed()) {
-			if(!display.readAndDispatch()) {
-				display.sleep();
-			}
-			if(this.response != Response.NO_RESPONSE) {
-				this.shell.dispose();
-				break;
-			}
-			if(this.shell.isDisposed()) {
-				break;
-			}
-			if(Main.getInstance() != null) {
-				if(Main.getInstance().showWindow) {
-					Main.getInstance().runLoop();
-				} else if(Main.getInstance().isSWTConsoleWindowOpen()) {
-					Main.getInstance().getConsoleWindow().runLoop();
-				}
-			}
-			if(this.shell.isDisposed()) {
+			if(!this.mainLoop(display)) {
 				break;
 			}
 		}
@@ -260,27 +305,27 @@ public class OptionsDialog extends Dialog {
 		final SelectionAdapter toggleOverrideListener = new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent doNotUse) {
-				OptionsDialog.this.threadPoolSize.setEnabled(OptionsDialog.this.btnEnabled.getSelection());
+				OptionsDialog.this.threadPoolSize.setEnabled(OptionsDialog.this.btnEnableOverrideThreadPool.getSelection());
 				if(!OptionsDialog.this.threadPoolSize.isEnabled()) {
 					OptionsDialog.this.threadPoolSize.setSelection(JavaWebServer.fNumberOfThreads);
 					JavaWebServer.overrideThreadPoolSize = -1;
-					OptionsDialog.this.btnEnabled.setText("Disabled");
-					OptionsDialog.this.btnEnabled.setToolTipText("Enable the override");
+					OptionsDialog.this.btnEnableOverrideThreadPool.setText("Disabled");
+					OptionsDialog.this.btnEnableOverrideThreadPool.setToolTipText("Enable the override");
 				} else {
 					JavaWebServer.overrideThreadPoolSize = OptionsDialog.this.threadPoolSize.getSelection();
-					OptionsDialog.this.btnEnabled.setText("Enabled");
-					OptionsDialog.this.btnEnabled.setToolTipText("Disable the override");
+					OptionsDialog.this.btnEnableOverrideThreadPool.setText("Enabled");
+					OptionsDialog.this.btnEnableOverrideThreadPool.setToolTipText("Disable the override");
 				}
 				JavaWebServer.updateThreadPoolSizes();
 			}
 		};
 		
-		this.btnEnabled = new Button(contents1, SWT.CHECK);
-		this.btnEnabled.setSelection(JavaWebServer.overrideThreadPoolSize != -1);
-		this.btnEnabled.addSelectionListener(toggleOverrideListener);
-		this.btnEnabled.setText(JavaWebServer.overrideThreadPoolSize != -1 ? "Enabled" : "Disabled");
-		this.btnEnabled.setToolTipText(JavaWebServer.overrideThreadPoolSize != -1 ? "Disable the override" : "Enable the override");
-		this.btnEnabled.setBounds(272, 0, 69, 21);
+		this.btnEnableOverrideThreadPool = new Button(contents1, SWT.CHECK);
+		this.btnEnableOverrideThreadPool.setSelection(JavaWebServer.overrideThreadPoolSize != -1);
+		this.btnEnableOverrideThreadPool.addSelectionListener(toggleOverrideListener);
+		this.btnEnableOverrideThreadPool.setText(JavaWebServer.overrideThreadPoolSize != -1 ? "Enabled" : "Disabled");
+		this.btnEnableOverrideThreadPool.setToolTipText(JavaWebServer.overrideThreadPoolSize != -1 ? "Disable the override" : "Enable the override");
+		this.btnEnableOverrideThreadPool.setBounds(272, 0, 69, 21);
 		
 		this.threadPoolSize = new Spinner(contents1, SWT.BORDER);
 		this.threadPoolSize.setEnabled(JavaWebServer.overrideThreadPoolSize != -1);
@@ -291,11 +336,42 @@ public class OptionsDialog extends Dialog {
 		this.threadPoolSize.addModifyListener(new ModifyListener() {
 			@Override
 			public void modifyText(ModifyEvent e) {
-				JavaWebServer.overrideThreadPoolSize = OptionsDialog.this.btnEnabled.getEnabled() ? OptionsDialog.this.threadPoolSize.getSelection() : -1;
+				JavaWebServer.overrideThreadPoolSize = OptionsDialog.this.btnEnableOverrideThreadPool.getEnabled() ? OptionsDialog.this.threadPoolSize.getSelection() : -1;
 				JavaWebServer.updateThreadPoolSizes();
 			}
 		});
 		this.threadPoolSize.setBounds(156, 0, 110, 21);
+		
+		Label lblVlcNetworkCaching = new Label(contents1, SWT.NONE);
+		lblVlcNetworkCaching.setToolTipText("Allows you to edit the `<vlc:option>network-caching=XXXX</vlc:option>` value that is sent to VLC Media Player via the xspf playlist feature");
+		lblVlcNetworkCaching.setBounds(0, 27, 150, 15);
+		lblVlcNetworkCaching.setText("VLC Network Caching:");
+		
+		this.vlcNetworkCaching = new Spinner(contents1, SWT.BORDER);
+		this.vlcNetworkCaching.setIncrement(250);
+		final Property<Boolean> deb1 = new Property<>();
+		this.vlcNetworkCaching.addModifyListener(new ModifyListener() {
+			@Override
+			public void modifyText(ModifyEvent e) {
+				if(deb1.getValue() == Boolean.TRUE) {
+					return;
+				}
+				deb1.setValue(Boolean.TRUE);
+				if(OptionsDialog.this.vlcNetworkCaching.getSelection() == 0) {
+					OptionsDialog.this.vlcNetworkCaching.setSelection(-1);
+				}
+				if(OptionsDialog.this.vlcNetworkCaching.getSelection() == 249) {
+					OptionsDialog.this.vlcNetworkCaching.setSelection(250);
+				}
+				JavaWebServer.VLC_NETWORK_CACHING_MILLIS = OptionsDialog.this.vlcNetworkCaching.getSelection();
+				deb1.setValue(Boolean.FALSE);
+			}
+		});
+		this.vlcNetworkCaching.setToolTipText("Set VLC Network Caching");
+		this.vlcNetworkCaching.setMaximum(10000);
+		this.vlcNetworkCaching.setMinimum(-1);
+		this.vlcNetworkCaching.setSelection(JavaWebServer.VLC_NETWORK_CACHING_MILLIS);
+		this.vlcNetworkCaching.setBounds(156, 27, 110, 21);
 		
 		Label lblServerListenPort = new Label(contents, SWT.NONE);
 		lblServerListenPort.setForeground(SWTResourceManager.getColor(SWT.COLOR_RED));
@@ -317,6 +393,30 @@ public class OptionsDialog extends Dialog {
 		this.serverListenPort.setForeground(SWTResourceManager.getColor(SWT.COLOR_BLUE));
 		this.serverListenPort.setBackground(SWTResourceManager.getColor(SWT.COLOR_RED));
 		this.serverListenPort.setBounds(106, 124, 64, 21);
+		
+		Label label = new Label(contents, SWT.SEPARATOR | SWT.VERTICAL);
+		label.setBounds(176, 97, 2, 48);
+		
+		Button btnHttpClientOptions = new Button(contents, SWT.NONE);
+		btnHttpClientOptions.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				if(OptionsDialog.this.httpClientOptionsDialog == null) {
+					HTTPClientUserAgentOptionsDialog dialog = new HTTPClientUserAgentOptionsDialog(OptionsDialog.this);
+					OptionsDialog.this.httpClientOptionsDialog = dialog;
+					Response response = dialog.open();
+					OptionsDialog.this.httpClientOptionsDialog = null;
+					dialog.dispose();
+					if(response == Response.OK) {
+						dialog.applySettings();
+					}
+				} else {
+					OptionsDialog.this.httpClientOptionsDialog.setFocus();
+				}
+			}
+		});
+		btnHttpClientOptions.setBounds(184, 97, 147, 25);
+		btnHttpClientOptions.setText("HTTP client options...");
 		
 		TabItem tbtmSslhttpsOptions = new TabItem(tabFolder, SWT.NONE);
 		tbtmSslhttpsOptions.setToolTipText("Options related to the internal SSL server");
@@ -657,6 +757,59 @@ public class OptionsDialog extends Dialog {
 		this.proxyPassword.setToolTipText("Proxy Password");
 		this.proxyPassword.setEnabled(btnProxyRequiresAuthorization.getSelection());
 		
+		this.btnTerminateDeadProxy = new Button(this.proxySettings, SWT.CHECK);
+		this.btnTerminateDeadProxy.setBounds(0, 102, 231, 16);
+		this.btnTerminateDeadProxy.setText("Terminate dead proxy connections");
+		this.btnTerminateDeadProxy.setToolTipText("Terminate proxy connections when they haven't been active for longer than the request timeout(i.e. the connection is still open but the client and server are done passing data, but didn't close the connection for some reason)");
+		this.btnTerminateDeadProxy.setSelection(JavaWebServer.proxyTerminateDeadConnections);
+		
+		this.btnTerminateDeadProxyConnectionTimeouts = new Button(this.proxySettings, SWT.CHECK);
+		this.btnTerminateDeadProxyConnectionTimeouts.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				JavaWebServer.proxyTerminatePotentiallyDeadConnectionsWhenRequestTimeoutReached = OptionsDialog.this.btnTerminateDeadProxyConnectionTimeouts.getSelection();
+			}
+		});
+		this.btnTerminateDeadProxyConnectionTimeouts.setBounds(0, 124, 436, 16);
+		this.btnTerminateDeadProxyConnectionTimeouts.setText("Terminate proxy connections after the connection timeout has been reached");
+		this.btnTerminateDeadProxyConnectionTimeouts.setToolTipText("Terminate potentially dead proxy connections when they haven't been active for longer than the request timeout(i.e. the connection is still open, and only one of the client or server are trying to pass data, but the other isn't responding anymore for some reason). This is less common and should generally be left set to false unless you start having hundreds of open connections sitting around eating up server threads and resources.");
+		this.btnTerminateDeadProxyConnectionTimeouts.setSelection(JavaWebServer.proxyTerminatePotentiallyDeadConnectionsWhenRequestTimeoutReached);
+		this.btnTerminateDeadProxyConnectionTimeouts.setEnabled(this.btnTerminateDeadProxy.getSelection());
+		
+		Button btnEnableConnectionLimit = new Button(this.proxySettings, SWT.CHECK);
+		btnEnableConnectionLimit.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				boolean check = JavaWebServer.proxyEnableSinBinConnectionLimit;
+				JavaWebServer.proxyEnableSinBinConnectionLimit = btnEnableConnectionLimit.getSelection();
+				if(!check && check != JavaWebServer.proxyEnableSinBinConnectionLimit) {//if it was enabled before and it's disabled now, then:
+					for(NaughtyClientData data : JavaWebServer.sinBin) {//TODO get all the same stuff collected into either naughtyClientData class or some other class that is used to manage general client banning
+						data.sameIpHasBeenUsingProxyConnections = false;
+						data.saveToFile();
+					}
+				}
+			}
+		});
+		btnEnableConnectionLimit.setToolTipText("Whether or not the sinbin automatic banning of client ip addresses based on excessive number of open connections to this server applies to proxy connections.\r\n\r\nNot recommended since one computer can make 20 or even hundreds of open connections to the internet at once, quickly resulting in this server incorrectly banning the client for \"Too many connected clients at the same time\" or similar.");
+		btnEnableConnectionLimit.setBounds(0, 146, 436, 16);
+		btnEnableConnectionLimit.setText("Enable connection limit for proxy connections(not recommended)");
+		btnEnableConnectionLimit.setSelection(JavaWebServer.proxyEnableSinBinConnectionLimit);
+		
+		Label label_1 = new Label(this.proxySettings, SWT.SEPARATOR | SWT.HORIZONTAL);
+		label_1.setBounds(0, 94, 446, 2);
+		
+		this.btnTerminateDeadProxy.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				OptionsDialog.this.btnTerminateDeadProxyConnectionTimeouts.setEnabled(OptionsDialog.this.btnTerminateDeadProxy.getSelection());
+				if(!OptionsDialog.this.btnTerminateDeadProxy.getSelection()) {
+					OptionsDialog.this.btnTerminateDeadProxyConnectionTimeouts.setSelection(false);
+				}
+				JavaWebServer.proxyTerminateDeadConnections = OptionsDialog.this.btnTerminateDeadProxyConnectionTimeouts.getSelection();
+				JavaWebServer.proxyTerminatePotentiallyDeadConnectionsWhenRequestTimeoutReached = OptionsDialog.this.btnTerminateDeadProxyConnectionTimeouts.getSelection();
+			}
+		});
+		
 		Label lblImage = new Label(this.shell, SWT.NONE);
 		lblImage.setImage(SWTResourceManager.getImage(OptionsDialog.class, "/assets/textures/icons/question.ico"));
 		lblImage.setBounds(10, 10, 48, 48);
@@ -674,6 +827,7 @@ public class OptionsDialog extends Dialog {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
 				OptionsDialog.this.response = Response.DONE;
+				JavaWebServer.saveOptionsToFile(true);
 			}
 		});
 		btnDone.setBounds(352, 359, 112, 23);
